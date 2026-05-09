@@ -101,10 +101,11 @@ export default function Page() {
   const onShare = async () => {
     if (!result) return;
     const text = [
-      `The Reach scored: ${result.place_name}`,
+      `Worth The Haul scored: ${result.place_name}`,
       `🔥 Fire: ${result.fire}/10 — ${result.fire_reason}`,
       `😮‍💨 Schlep: ${result.schlep}/10 — ${result.schlep_reason}`,
       `Verdict: ${result.verdict}`,
+      `https://worththehaul.app`,
     ].join("\n");
     try {
       await navigator.clipboard.writeText(text);
@@ -120,13 +121,13 @@ export default function Page() {
     <main className="mx-auto max-w-2xl px-5 pb-20 pt-10">
       <header className="mb-8 text-center">
         <h1
-          className="font-display text-7xl"
+          className="font-display text-7xl leading-none"
           style={{ color: "var(--text)" }}
         >
-          THE REACH
+          WORTH<br />THE HAUL
         </h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
-          🔥 Fire Score · 😮‍💨 Schlep Score · Is it worth the haul?
+        <p className="mt-3 text-sm" style={{ color: "var(--muted)" }}>
+          🔥 Fire Score · 😮‍💨 Schlep Score · Is the trip worth it?
         </p>
       </header>
 

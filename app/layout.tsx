@@ -2,12 +2,13 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "The Reach — Is it worth the haul?",
-  description: "Score any place on Fire (quality) and Schlep (effort).",
+  metadataBase: new URL("https://worththehaul.app"),
+  title: "Worth The Haul — Is it worth the trip?",
+  description: "Score any place on Fire (quality) and Schlep (effort) and find out if it's worth the haul.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    title: "The Reach",
+    title: "Worth The Haul",
     statusBarStyle: "black-translucent",
   },
   icons: {
