@@ -5,7 +5,7 @@ const PLACES_URL =
 const DISTANCE_URL =
   "https://maps.googleapis.com/maps/api/distancematrix/json";
 
-const MODES: TravelMode[] = ["driving", "transit", "walking"];
+const MODES: TravelMode[] = ["driving", "transit", "walking", "bicycling"];
 
 function getKey(): string {
   const key = process.env.GOOGLE_MAPS_API_KEY;

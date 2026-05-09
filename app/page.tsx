@@ -11,6 +11,14 @@ const MODE_EMOJI: Record<TravelMode, string> = {
   driving: "🚗",
   transit: "🚆",
   walking: "🚶",
+  bicycling: "🚲",
+};
+
+const MODE_LABEL: Record<TravelMode, string> = {
+  driving: "Drive / Uber",
+  transit: "Transit",
+  walking: "Walk",
+  bicycling: "Bike",
 };
 
 const EXAMPLES: { place: string; from: string }[] = [
@@ -40,6 +48,7 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ScoreResult | null>(null);
   const [shareLabel, setShareLabel] = useState("Share");
+  const [rescoring, setRescoring] = useState(false);
 
   useEffect(() => {
     const handler = (event: PromiseRejectionEvent) => {
@@ -51,17 +60,24 @@ export default function Page() {
     return () => window.removeEventListener("unhandledrejection", handler);
   }, []);
 
-  const submit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
+  const fetchScore = async (mode?: TravelMode, replaceResult = true) => {
     if (!place.trim()) return;
-    setLoading(true);
+    if (replaceResult) {
+      setLoading(true);
+      setResult(null);
+    } else {
+      setRescoring(true);
+    }
     setError(null);
-    setResult(null);
     try {
       const res = await fetch("/api/score", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ place: place.trim(), from: from.trim() || undefined }),
+        body: JSON.stringify({
+          place: place.trim(),
+          from: from.trim() || undefined,
+          mode,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -73,7 +89,13 @@ export default function Page() {
       setError("Network error. Try again.");
     } finally {
       setLoading(false);
+      setRescoring(false);
     }
+  };
+
+  const submit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    fetchScore(undefined, true);
   };
 
   const onShare = async () => {
@@ -200,24 +222,43 @@ export default function Page() {
 
       {result && !loading && (
         <section className="mt-8 space-y-4">
-          <MapEmbed query={result.maps_query} />
+          <MapEmbed
+            query={result.maps_query}
+            name={result.place_name}
+            lat={result.lat}
+            lng={result.lng}
+          />
 
           {result.legs.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {result.legs.map((leg) => (
-                <div
-                  key={leg.mode}
-                  className="rounded-full border px-3 py-1 text-xs"
-                  style={{
-                    borderColor: "var(--border)",
-                    color: "var(--text)",
-                    background: "var(--surface)",
-                  }}
-                >
-                  {MODE_EMOJI[leg.mode]} {leg.duration}
-                  <span style={{ color: "var(--muted)" }}> · {leg.distance}</span>
-                </div>
-              ))}
+            <div>
+              <div
+                className="mb-2 text-[10px] uppercase tracking-wider"
+                style={{ color: "var(--muted)" }}
+              >
+                Pick your mode to rescore
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {result.legs.map((leg) => {
+                  const selected = result.selected_mode === leg.mode;
+                  return (
+                    <button
+                      key={leg.mode}
+                      type="button"
+                      onClick={() => fetchScore(leg.mode, false)}
+                      disabled={rescoring}
+                      className="rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50"
+                      style={{
+                        borderColor: selected ? "var(--fire)" : "var(--border)",
+                        color: selected ? "var(--fire)" : "var(--text)",
+                        background: "var(--surface)",
+                      }}
+                    >
+                      {MODE_EMOJI[leg.mode]} {MODE_LABEL[leg.mode]} · {leg.duration}
+                      <span style={{ color: "var(--muted)" }}> · {leg.distance}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -227,6 +268,11 @@ export default function Page() {
               style={{ color: "var(--muted)" }}
             >
               📍 {result.distance_note}
+              {rescoring && (
+                <span className="ml-2" style={{ color: "var(--fire)" }}>
+                  rescoring…
+                </span>
+              )}
             </div>
           )}
 
