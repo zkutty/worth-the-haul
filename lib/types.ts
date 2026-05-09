@@ -4,10 +4,23 @@ export type Verdict =
   | "Barely Worth It"
   | "Hard Pass";
 
+export type TravelMode = "driving" | "transit" | "walking";
+
 export type ScoreRequest = {
   place: string;
   from?: string;
 };
+
+export type DistanceLeg = {
+  mode: TravelMode;
+  duration: string;
+  distance: string;
+  durationSeconds: number;
+};
+
+export type DistanceData = {
+  legs: DistanceLeg[];
+} | null;
 
 export type ScoreResult = {
   fire: number;
@@ -19,6 +32,7 @@ export type ScoreResult = {
   distance_note: string;
   place_name: string;
   maps_query: string;
+  legs: DistanceLeg[];
 };
 
 export type PlaceData = {
@@ -29,9 +43,3 @@ export type PlaceData = {
   lat?: number;
   lng?: number;
 };
-
-export type DistanceData = {
-  duration: string;
-  distance: string;
-  mode: "transit" | "driving";
-} | null;

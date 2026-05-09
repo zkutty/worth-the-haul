@@ -4,7 +4,13 @@ import { useState } from "react";
 import ScoreBar from "@/components/ScoreBar";
 import VerdictCard from "@/components/VerdictCard";
 import MapEmbed from "@/components/MapEmbed";
-import type { ScoreResult } from "@/lib/types";
+import type { ScoreResult, TravelMode } from "@/lib/types";
+
+const MODE_EMOJI: Record<TravelMode, string> = {
+  driving: "🚗",
+  transit: "🚆",
+  walking: "🚶",
+};
 
 const EXAMPLES: { place: string; from: string }[] = [
   { place: "Din Tai Fung, Seattle", from: "Capitol Hill, Seattle" },
@@ -190,14 +196,29 @@ export default function Page() {
         <section className="mt-8 space-y-4">
           <MapEmbed query={result.maps_query} />
 
+          {result.legs.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {result.legs.map((leg) => (
+                <div
+                  key={leg.mode}
+                  className="rounded-full border px-3 py-1 text-xs"
+                  style={{
+                    borderColor: "var(--border)",
+                    color: "var(--text)",
+                    background: "var(--surface)",
+                  }}
+                >
+                  {MODE_EMOJI[leg.mode]} {leg.duration}
+                  <span style={{ color: "var(--muted)" }}> · {leg.distance}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {result.distance_note && (
             <div
-              className="inline-block rounded-full border px-3 py-1 text-xs"
-              style={{
-                borderColor: "var(--border)",
-                color: "var(--muted)",
-                background: "var(--surface)",
-              }}
+              className="text-xs"
+              style={{ color: "var(--muted)" }}
             >
               📍 {result.distance_note}
             </div>

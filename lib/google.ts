@@ -1,9 +1,11 @@
-import type { DistanceData, PlaceData } from "./types";
+import type { DistanceData, DistanceLeg, PlaceData, TravelMode } from "./types";
 
 const PLACES_URL =
   "https://maps.googleapis.com/maps/api/place/findplacefromtext/json";
 const DISTANCE_URL =
   "https://maps.googleapis.com/maps/api/distancematrix/json";
+
+const MODES: TravelMode[] = ["driving", "transit", "walking"];
 
 function getKey(): string {
   const key = process.env.GOOGLE_MAPS_API_KEY;
@@ -16,7 +18,7 @@ export async function findPlace(input: string): Promise<PlaceData | null> {
   const params = new URLSearchParams({
     input,
     inputtype: "textquery",
-    fields: "name,rating,user_ratings_total,price_level,geometry",
+    fields: "name,rating,user_ratings_total,price_level,geometry,formatted_address",
     key,
   });
   const res = await fetch(`${PLACES_URL}?${params.toString()}`);
@@ -34,11 +36,11 @@ export async function findPlace(input: string): Promise<PlaceData | null> {
   };
 }
 
-async function distanceMatrix(
+async function distanceMatrixOne(
   origin: string,
   destination: string,
-  mode: "transit" | "driving"
-): Promise<DistanceData> {
+  mode: TravelMode
+): Promise<DistanceLeg | null> {
   const key = getKey();
   const params = new URLSearchParams({
     origins: origin,
@@ -52,21 +54,28 @@ async function distanceMatrix(
   const element = data?.rows?.[0]?.elements?.[0];
   if (!element || element.status !== "OK") return null;
   return {
+    mode,
     duration: element.duration?.text ?? "",
     distance: element.distance?.text ?? "",
-    mode,
+    durationSeconds: Number(element.duration?.value ?? 0),
   };
 }
 
 export async function getDistance(
   origin: string,
-  destination: string
+  place: PlaceData
 ): Promise<DistanceData> {
+  const destination =
+    place.lat !== undefined && place.lng !== undefined
+      ? `${place.lat},${place.lng}`
+      : place.name;
   try {
-    const transit = await distanceMatrix(origin, destination, "transit");
-    if (transit) return transit;
-    const driving = await distanceMatrix(origin, destination, "driving");
-    return driving;
+    const results = await Promise.all(
+      MODES.map((mode) => distanceMatrixOne(origin, destination, mode))
+    );
+    const legs = results.filter((leg): leg is DistanceLeg => leg !== null);
+    if (legs.length === 0) return null;
+    return { legs };
   } catch {
     return null;
   }

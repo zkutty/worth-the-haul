@@ -10,18 +10,21 @@ Use Google rating and review count as signal but apply judgment.
 A 4.2 with 40 reviews is not the same as a 4.2 with 4,000 reviews.
 
 SCHLEP SCORE (1–10): How much of a mission to access.
-Use actual travel time if provided. Also consider: parking, wait times,
-reservation difficulty, price_level as proxy for formality/hassle.
+Use the actual travel-time options if provided — pick the most realistic mode
+(short walks under ~25 min favor walking; medium urban distances favor
+transit/rideshare; long distances or off-transit places favor driving).
+Also consider: parking, wait times, reservation difficulty, price_level as
+proxy for formality/hassle.
 
 Return ONLY valid JSON, no backticks, no preamble:
 {
   "fire": <1–10>,
   "schlep": <1–10>,
   "fire_reason": "<one punchy sentence>",
-  "schlep_reason": "<one honest sentence>",
+  "schlep_reason": "<one honest sentence that names the realistic mode>",
   "verdict": "<Legendary Haul | Worth It | Barely Worth It | Hard Pass>",
   "verdict_reason": "<one sentence overall take>",
-  "distance_note": "<e.g. '34 min by transit' or 'location not provided'>"
+  "distance_note": "<short realistic summary, e.g. '18 min transit / 9 min drive / 32 min walk'>"
 }`;
 
 const VALID_VERDICTS: Verdict[] = [
@@ -53,10 +56,11 @@ function buildUserMessage(
   const priceLevel =
     place.price_level !== undefined ? `${place.price_level}/4` : "unknown";
   lines.push(`Price level: ${priceLevel}`);
-  if (from && distance) {
-    lines.push(
-      `Travel time from ${from}: ${distance.duration} (${distance.distance}) by ${distance.mode}`
-    );
+  if (from && distance && distance.legs.length > 0) {
+    lines.push(`Travel options from ${from}:`);
+    for (const leg of distance.legs) {
+      lines.push(`  - ${leg.mode}: ${leg.duration} (${leg.distance})`);
+    }
   } else if (from) {
     lines.push(`Travel time from ${from}: unavailable`);
   } else {
@@ -67,7 +71,7 @@ function buildUserMessage(
 
 function parseScoreJson(text: string): Omit<
   ScoreResult,
-  "place_name" | "maps_query"
+  "place_name" | "maps_query" | "legs"
 > {
   const trimmed = text.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
   const parsed = JSON.parse(trimmed);
@@ -92,7 +96,7 @@ export async function scoreWithClaude(
   from: string | undefined,
   distance: DistanceData,
   rawPlace: string
-): Promise<Omit<ScoreResult, "place_name" | "maps_query">> {
+): Promise<Omit<ScoreResult, "place_name" | "maps_query" | "legs">> {
   const client = getClient();
   const userMessage = buildUserMessage(place, from, distance, rawPlace);
 

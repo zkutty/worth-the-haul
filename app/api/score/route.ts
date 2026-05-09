@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const distance = from ? await getDistance(from, place) : null;
+  const distance = from ? await getDistance(from, placeData) : null;
 
   let scored;
   try {
@@ -52,6 +52,7 @@ export async function POST(req: Request) {
     ...scored,
     place_name: placeData.name,
     maps_query: encodeURIComponent(placeData.name),
+    legs: distance?.legs ?? [],
   };
 
   return NextResponse.json(result);
