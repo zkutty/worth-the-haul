@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "worth-the-haul",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "routes": [
+    { "pattern": "worththehaul.app", "custom_domain": true },
+    { "pattern": "www.worththehaul.app", "custom_domain": true }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

@@ -1,7 +1,7 @@
 {
-  "name": "The Reach",
-  "short_name": "The Reach",
-  "description": "Is it worth the haul?",
+  "name": "Worth The Haul",
+  "short_name": "Worth The Haul",
+  "description": "Is the trip worth it? Score any place on Fire and Schlep.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#060606",

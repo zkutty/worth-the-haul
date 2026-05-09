@@ -1,10 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ScoreBar from "@/components/ScoreBar";
 import VerdictCard from "@/components/VerdictCard";
 import MapEmbed from "@/components/MapEmbed";
-import type { ScoreResult } from "@/lib/types";
+import RatioCard from "@/components/RatioCard";
+import type { ScoreResult, TravelMode } from "@/lib/types";
+
+const MODE_EMOJI: Record<TravelMode, string> = {
+  driving: "🚗",
+  transit: "🚆",
+  walking: "🚶",
+  bicycling: "🚲",
+};
+
+const MODE_LABEL: Record<TravelMode, string> = {
+  driving: "Drive / Uber",
+  transit: "Transit",
+  walking: "Walk",
+  bicycling: "Bike",
+};
 
 const EXAMPLES: { place: string; from: string }[] = [
   { place: "Din Tai Fung, Seattle", from: "Capitol Hill, Seattle" },
@@ -33,18 +48,36 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ScoreResult | null>(null);
   const [shareLabel, setShareLabel] = useState("Share");
+  const [rescoring, setRescoring] = useState(false);
 
-  const submit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
+  useEffect(() => {
+    const handler = (event: PromiseRejectionEvent) => {
+      if (event.reason == null) {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("unhandledrejection", handler);
+    return () => window.removeEventListener("unhandledrejection", handler);
+  }, []);
+
+  const fetchScore = async (mode?: TravelMode, replaceResult = true) => {
     if (!place.trim()) return;
-    setLoading(true);
+    if (replaceResult) {
+      setLoading(true);
+      setResult(null);
+    } else {
+      setRescoring(true);
+    }
     setError(null);
-    setResult(null);
     try {
       const res = await fetch("/api/score", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ place: place.trim(), from: from.trim() || undefined }),
+        body: JSON.stringify({
+          place: place.trim(),
+          from: from.trim() || undefined,
+          mode,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -56,16 +89,23 @@ export default function Page() {
       setError("Network error. Try again.");
     } finally {
       setLoading(false);
+      setRescoring(false);
     }
+  };
+
+  const submit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    fetchScore(undefined, true);
   };
 
   const onShare = async () => {
     if (!result) return;
     const text = [
-      `The Reach scored: ${result.place_name}`,
+      `Worth The Haul scored: ${result.place_name}`,
       `🔥 Fire: ${result.fire}/10 — ${result.fire_reason}`,
       `😮‍💨 Schlep: ${result.schlep}/10 — ${result.schlep_reason}`,
       `Verdict: ${result.verdict}`,
+      `https://worththehaul.app`,
     ].join("\n");
     try {
       await navigator.clipboard.writeText(text);
@@ -77,22 +117,17 @@ export default function Page() {
     }
   };
 
-  const ratio =
-    result && result.schlep > 0
-      ? (result.fire / result.schlep).toFixed(2)
-      : null;
-
   return (
     <main className="mx-auto max-w-2xl px-5 pb-20 pt-10">
       <header className="mb-8 text-center">
         <h1
-          className="font-display text-7xl"
+          className="font-display text-7xl leading-none"
           style={{ color: "var(--text)" }}
         >
-          THE REACH
+          WORTH<br />THE HAUL
         </h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
-          🔥 Fire Score · 😮‍💨 Schlep Score · Is it worth the haul?
+        <p className="mt-3 text-sm" style={{ color: "var(--muted)" }}>
+          🔥 Fire Score · 😮‍💨 Schlep Score · Is the trip worth it?
         </p>
       </header>
 
@@ -188,18 +223,57 @@ export default function Page() {
 
       {result && !loading && (
         <section className="mt-8 space-y-4">
-          <MapEmbed query={result.maps_query} />
+          <MapEmbed
+            query={result.maps_query}
+            name={result.place_name}
+            lat={result.lat}
+            lng={result.lng}
+          />
+
+          {result.legs.length > 0 && (
+            <div>
+              <div
+                className="mb-2 text-[10px] uppercase tracking-wider"
+                style={{ color: "var(--muted)" }}
+              >
+                Pick your mode to rescore
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {result.legs.map((leg) => {
+                  const selected = result.selected_mode === leg.mode;
+                  return (
+                    <button
+                      key={leg.mode}
+                      type="button"
+                      onClick={() => fetchScore(leg.mode, false)}
+                      disabled={rescoring}
+                      className="rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50"
+                      style={{
+                        borderColor: selected ? "var(--fire)" : "var(--border)",
+                        color: selected ? "var(--fire)" : "var(--text)",
+                        background: "var(--surface)",
+                      }}
+                    >
+                      {MODE_EMOJI[leg.mode]} {MODE_LABEL[leg.mode]} · {leg.duration}
+                      <span style={{ color: "var(--muted)" }}> · {leg.distance}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {result.distance_note && (
             <div
-              className="inline-block rounded-full border px-3 py-1 text-xs"
-              style={{
-                borderColor: "var(--border)",
-                color: "var(--muted)",
-                background: "var(--surface)",
-              }}
+              className="text-xs"
+              style={{ color: "var(--muted)" }}
             >
               📍 {result.distance_note}
+              {rescoring && (
+                <span className="ml-2" style={{ color: "var(--fire)" }}>
+                  rescoring…
+                </span>
+              )}
             </div>
           )}
 
@@ -209,6 +283,8 @@ export default function Page() {
             label="FIRE"
             emoji="🔥"
             reason={result.fire_reason}
+            details={result.fire_details}
+            higherIsBetter
           />
 
           <ScoreBar
@@ -217,16 +293,11 @@ export default function Page() {
             label="SCHLEP"
             emoji="😮‍💨"
             reason={result.schlep_reason}
+            details={result.schlep_details}
+            higherIsBetter={false}
           />
 
-          {ratio && (
-            <div
-              className="text-center text-xs"
-              style={{ color: "var(--muted)" }}
-            >
-              fire ÷ schlep = <span style={{ color: "var(--text)" }}>{ratio}</span>
-            </div>
-          )}
+          <RatioCard fire={result.fire} schlep={result.schlep} />
 
           <VerdictCard
             verdict={result.verdict}
