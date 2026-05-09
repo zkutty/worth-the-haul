@@ -8,6 +8,7 @@ type Props = {
   label: string;
   emoji: string;
   reason: string;
+  details?: string[];
   higherIsBetter: boolean;
 };
 
@@ -17,9 +18,12 @@ export default function ScoreBar({
   label,
   emoji,
   reason,
+  details,
   higherIsBetter,
 }: Props) {
   const [width, setWidth] = useState(0);
+  const [open, setOpen] = useState(false);
+  const hasDetails = !!details && details.length > 0;
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -75,6 +79,30 @@ export default function ScoreBar({
       <p className="mt-3 text-sm" style={{ color: "var(--text)" }}>
         {reason}
       </p>
+      {hasDetails && (
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="mt-3 inline-flex items-center gap-1 text-xs uppercase tracking-wider transition-colors"
+            style={{ color: "var(--muted)" }}
+            aria-expanded={open}
+          >
+            <span style={{ color }}>{open ? "▾" : "▸"}</span>
+            {open ? "Hide details" : "Why this score"}
+          </button>
+          {open && (
+            <ul className="mt-3 space-y-2 border-t pt-3 text-sm" style={{ borderColor: "var(--border)" }}>
+              {details!.map((d, i) => (
+                <li key={i} className="flex gap-2" style={{ color: "var(--text)" }}>
+                  <span style={{ color }}>•</span>
+                  <span>{d}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }

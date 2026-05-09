@@ -30,12 +30,25 @@ Return ONLY valid JSON, no backticks, no preamble:
 {
   "fire": <1–10>,
   "schlep": <1–10>,
-  "fire_reason": "<one punchy sentence>",
-  "schlep_reason": "<one honest sentence that names the mode being scored>",
+  "fire_reason": "<one punchy headline sentence>",
+  "fire_details": [
+    "<bullet on reputation signals — rating, review count, what reviewers actually say>",
+    "<bullet on uniqueness — what makes this place a destination vs replicable>",
+    "<bullet on the strongest reason to go OR the most honest weak point>"
+  ],
+  "schlep_reason": "<one honest headline sentence that names the mode being scored>",
+  "schlep_details": [
+    "<bullet on travel friction — specific mode time, transfers, last-mile>",
+    "<bullet on logistical friction — parking, reservation difficulty, wait times>",
+    "<bullet on price/formality friction or time-of-day gotchas>"
+  ],
   "verdict": "<Legendary Haul | Worth It | Barely Worth It | Hard Pass>",
   "verdict_reason": "<one sentence overall take>",
   "distance_note": "<short summary, e.g. '18 min transit / 9 min drive / 32 min walk'>"
-}`;
+}
+
+Each bullet should be one short, concrete sentence — no fluff, no hedging.
+If a category genuinely doesn't apply, omit that bullet rather than padding.`;
 
 const VALID_VERDICTS: Verdict[] = [
   "Legendary Haul",
@@ -98,11 +111,17 @@ function parseScoreJson(text: string): Omit<
   const verdict: Verdict = VALID_VERDICTS.includes(parsed.verdict)
     ? parsed.verdict
     : "Worth It";
+  const toBullets = (v: unknown): string[] =>
+    Array.isArray(v)
+      ? v.map((x) => String(x).trim()).filter((s) => s.length > 0)
+      : [];
   return {
     fire,
     schlep,
     fire_reason: String(parsed.fire_reason ?? ""),
+    fire_details: toBullets(parsed.fire_details),
     schlep_reason: String(parsed.schlep_reason ?? ""),
+    schlep_details: toBullets(parsed.schlep_details),
     verdict,
     verdict_reason: String(parsed.verdict_reason ?? ""),
     distance_note: String(parsed.distance_note ?? ""),

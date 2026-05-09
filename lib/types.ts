@@ -27,7 +27,9 @@ export type ScoreResult = {
   fire: number;
   schlep: number;
   fire_reason: string;
+  fire_details: string[];
   schlep_reason: string;
+  schlep_details: string[];
   verdict: Verdict;
   verdict_reason: string;
   distance_note: string;

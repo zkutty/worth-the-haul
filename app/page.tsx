@@ -282,6 +282,7 @@ export default function Page() {
             label="FIRE"
             emoji="🔥"
             reason={result.fire_reason}
+            details={result.fire_details}
             higherIsBetter
           />
 
@@ -291,6 +292,7 @@ export default function Page() {
             label="SCHLEP"
             emoji="😮‍💨"
             reason={result.schlep_reason}
+            details={result.schlep_details}
             higherIsBetter={false}
           />
 
