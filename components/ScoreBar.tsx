@@ -8,6 +8,7 @@ type Props = {
   label: string;
   emoji: string;
   reason: string;
+  higherIsBetter: boolean;
 };
 
 export default function ScoreBar({
@@ -16,6 +17,7 @@ export default function ScoreBar({
   label,
   emoji,
   reason,
+  higherIsBetter,
 }: Props) {
   const [width, setWidth] = useState(0);
 
@@ -41,6 +43,12 @@ export default function ScoreBar({
         >
           <span className="mr-2">{emoji}</span>
           {label}
+          <span
+            className="ml-2 text-xs font-sans normal-case tracking-normal"
+            style={{ color: "var(--muted)" }}
+          >
+            {higherIsBetter ? "↑ higher is better" : "↓ lower is better"}
+          </span>
         </div>
         <div
           className="font-display text-5xl leading-none"

@@ -4,6 +4,7 @@ import { useState } from "react";
 import ScoreBar from "@/components/ScoreBar";
 import VerdictCard from "@/components/VerdictCard";
 import MapEmbed from "@/components/MapEmbed";
+import RatioCard from "@/components/RatioCard";
 import type { ScoreResult, TravelMode } from "@/lib/types";
 
 const MODE_EMOJI: Record<TravelMode, string> = {
@@ -82,11 +83,6 @@ export default function Page() {
       setTimeout(() => setShareLabel("Share"), 2000);
     }
   };
-
-  const ratio =
-    result && result.schlep > 0
-      ? (result.fire / result.schlep).toFixed(2)
-      : null;
 
   return (
     <main className="mx-auto max-w-2xl px-5 pb-20 pt-10">
@@ -230,6 +226,7 @@ export default function Page() {
             label="FIRE"
             emoji="🔥"
             reason={result.fire_reason}
+            higherIsBetter
           />
 
           <ScoreBar
@@ -238,16 +235,10 @@ export default function Page() {
             label="SCHLEP"
             emoji="😮‍💨"
             reason={result.schlep_reason}
+            higherIsBetter={false}
           />
 
-          {ratio && (
-            <div
-              className="text-center text-xs"
-              style={{ color: "var(--muted)" }}
-            >
-              fire ÷ schlep = <span style={{ color: "var(--text)" }}>{ratio}</span>
-            </div>
-          )}
+          <RatioCard fire={result.fire} schlep={result.schlep} />
 
           <VerdictCard
             verdict={result.verdict}
