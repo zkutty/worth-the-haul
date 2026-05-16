@@ -62,11 +62,21 @@ export default function Page() {
 
   const fetchScore = async (mode?: TravelMode, replaceResult = true) => {
     if (!place.trim()) return;
+    let lockFire;
     if (replaceResult) {
       setLoading(true);
       setResult(null);
     } else {
       setRescoring(true);
+      // Mode rescores must not move the fire score, so send back the
+      // fire we're already showing and let the server pin it.
+      if (result) {
+        lockFire = {
+          fire: result.fire,
+          fire_reason: result.fire_reason,
+          fire_details: result.fire_details,
+        };
+      }
     }
     setError(null);
     try {
@@ -77,6 +87,7 @@ export default function Page() {
           place: place.trim(),
           from: from.trim() || undefined,
           mode,
+          lockFire,
         }),
       });
       const data = await res.json();
