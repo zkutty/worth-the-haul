@@ -6,10 +6,17 @@ export type Verdict =
 
 export type TravelMode = "driving" | "transit" | "walking" | "bicycling";
 
+export type LockedFire = {
+  fire: number;
+  fire_reason: string;
+  fire_details: string[];
+};
+
 export type ScoreRequest = {
   place: string;
   from?: string;
   mode?: TravelMode;
+  lockFire?: LockedFire;
 };
 
 export type DistanceLeg = {

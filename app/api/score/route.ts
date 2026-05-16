@@ -48,6 +48,25 @@ export async function POST(req: Request) {
     );
   }
 
+  // A mode change only affects schlep, not fire. Re-running Claude would
+  // jitter the fire score and erode trust, so when the client sends the
+  // fire it's already showing, we pin it and keep only the fresh schlep.
+  if (mode && body.lockFire) {
+    const lf = body.lockFire;
+    if (
+      typeof lf.fire === "number" &&
+      Number.isFinite(lf.fire) &&
+      typeof lf.fire_reason === "string" &&
+      Array.isArray(lf.fire_details)
+    ) {
+      scored.fire = Math.max(1, Math.min(10, lf.fire));
+      scored.fire_reason = lf.fire_reason;
+      scored.fire_details = lf.fire_details
+        .map((d) => String(d))
+        .filter((d) => d.length > 0);
+    }
+  }
+
   if (from && !distance && !scored.distance_note) {
     scored.distance_note = "travel time unavailable";
   }
