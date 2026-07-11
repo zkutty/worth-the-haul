@@ -94,6 +94,7 @@ export default function Page() {
     if (decoded) {
       setResult(decoded);
       setPlace(decoded.place_name);
+      setFrom(decoded.from ?? "");
     }
   }, []);
 

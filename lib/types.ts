@@ -54,6 +54,7 @@ export type ScoreResult = {
   rating?: number;
   user_ratings_total?: number;
   price_level?: number;
+  from?: string;
 };
 
 export type PlaceData = {

@@ -1,12 +1,69 @@
 import { NextResponse } from "next/server";
 import { findPlace, getDistance } from "@/lib/google";
 import { scoreWithClaude } from "@/lib/claude";
-import type { DistanceData, ScoreRequest, ScoreResult, TravelMode } from "@/lib/types";
+import type {
+  DistanceData,
+  DistanceLeg,
+  PlaceData,
+  ScoreRequest,
+  ScoreResult,
+  TravelMode,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 
 const VALID_MODES: TravelMode[] = ["driving", "transit", "walking", "bicycling"];
 const MAX_INPUT_LENGTH = 200;
+const MAX_LEG_STRING_LENGTH = 50;
+
+// The client is untrusted here — this is reused verbatim in the Claude
+// prompt, so a malformed or oversized payload must fall back to a fresh
+// Google lookup rather than being passed through.
+function sanitizeKnownPlace(value: unknown): PlaceData | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.name !== "string" || v.name.length === 0 || v.name.length > MAX_INPUT_LENGTH) {
+    return null;
+  }
+  const asFiniteNumber = (n: unknown): number | undefined =>
+    typeof n === "number" && Number.isFinite(n) ? n : undefined;
+  return {
+    name: v.name,
+    rating: asFiniteNumber(v.rating),
+    user_ratings_total: asFiniteNumber(v.user_ratings_total),
+    price_level: asFiniteNumber(v.price_level),
+    lat: asFiniteNumber(v.lat),
+    lng: asFiniteNumber(v.lng),
+  };
+}
+
+function sanitizeKnownLegs(value: unknown): DistanceLeg[] | null {
+  if (!Array.isArray(value) || value.length > VALID_MODES.length) return null;
+  const legs: DistanceLeg[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") return null;
+    const v = item as Record<string, unknown>;
+    if (
+      typeof v.mode !== "string" ||
+      !VALID_MODES.includes(v.mode as TravelMode) ||
+      typeof v.duration !== "string" ||
+      v.duration.length > MAX_LEG_STRING_LENGTH ||
+      typeof v.distance !== "string" ||
+      v.distance.length > MAX_LEG_STRING_LENGTH ||
+      typeof v.durationSeconds !== "number" ||
+      !Number.isFinite(v.durationSeconds)
+    ) {
+      return null;
+    }
+    legs.push({
+      mode: v.mode as TravelMode,
+      duration: v.duration,
+      distance: v.distance,
+      durationSeconds: v.durationSeconds,
+    });
+  }
+  return legs;
+}
 
 // Best-effort per-isolate throttle. There's no shared store wired up (no KV
 // binding), so this only bounds abuse within a single warm isolate — it's a
@@ -69,16 +126,18 @@ export async function POST(req: Request) {
 
   // Mode rescores already know the place and every travel leg (the client
   // just displayed them) — skip Places + Distance Matrix entirely and reuse
-  // what was sent back.
-  const canReuseKnownData =
-    !!mode && !!body.knownPlace && Array.isArray(body.knownLegs);
+  // what was sent back, once it's been validated and capped (the caller is
+  // untrusted and this feeds straight into the Claude prompt).
+  const sanitizedKnownPlace = mode ? sanitizeKnownPlace(body.knownPlace) : null;
+  const sanitizedKnownLegs = mode ? sanitizeKnownLegs(body.knownLegs) : null;
+  const canReuseKnownData = !!sanitizedKnownPlace && !!sanitizedKnownLegs;
 
   let placeData;
   let distance: DistanceData;
 
   if (canReuseKnownData) {
-    placeData = body.knownPlace!;
-    distance = body.knownLegs!.length > 0 ? { legs: body.knownLegs! } : null;
+    placeData = sanitizedKnownPlace!;
+    distance = sanitizedKnownLegs!.length > 0 ? { legs: sanitizedKnownLegs! } : null;
   } else {
     const lookup = await findPlace(place);
     if (!lookup.ok) {
@@ -143,6 +202,7 @@ export async function POST(req: Request) {
     rating: placeData.rating,
     user_ratings_total: placeData.user_ratings_total,
     price_level: placeData.price_level,
+    from,
   };
 
   return NextResponse.json(result);
