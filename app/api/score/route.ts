@@ -1,13 +1,46 @@
 import { NextResponse } from "next/server";
 import { findPlace, getDistance } from "@/lib/google";
 import { scoreWithClaude } from "@/lib/claude";
-import type { ScoreRequest, ScoreResult, TravelMode } from "@/lib/types";
+import type { DistanceData, ScoreRequest, ScoreResult, TravelMode } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 const VALID_MODES: TravelMode[] = ["driving", "transit", "walking", "bicycling"];
+const MAX_INPUT_LENGTH = 200;
+
+// Best-effort per-isolate throttle. There's no shared store wired up (no KV
+// binding), so this only bounds abuse within a single warm isolate — it's a
+// cheap first line of defense, not a hard guarantee.
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 20;
+const requestLog = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW_MS;
+  const recent = (requestLog.get(ip) ?? []).filter((t) => t > windowStart);
+  recent.push(now);
+  requestLog.set(ip, recent);
+  return recent.length > RATE_LIMIT_MAX_REQUESTS;
+}
+
+function clientIp(req: Request): string {
+  return (
+    req.headers.get("cf-connecting-ip") ??
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "unknown"
+  );
+}
 
 export async function POST(req: Request) {
+  const ip = clientIp(req);
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      { status: 429 }
+    );
+  }
+
   let body: ScoreRequest;
   try {
     body = await req.json();
@@ -27,15 +60,43 @@ export async function POST(req: Request) {
     );
   }
 
-  const placeData = await findPlace(place);
-  if (!placeData) {
+  if (place.length > MAX_INPUT_LENGTH || (from && from.length > MAX_INPUT_LENGTH)) {
     return NextResponse.json(
-      { error: "Place not found. Try being more specific." },
+      { error: `Inputs must be ${MAX_INPUT_LENGTH} characters or fewer.` },
       { status: 400 }
     );
   }
 
-  const distance = from ? await getDistance(from, placeData) : null;
+  // Mode rescores already know the place and every travel leg (the client
+  // just displayed them) — skip Places + Distance Matrix entirely and reuse
+  // what was sent back.
+  const canReuseKnownData =
+    !!mode && !!body.knownPlace && Array.isArray(body.knownLegs);
+
+  let placeData;
+  let distance: DistanceData;
+
+  if (canReuseKnownData) {
+    placeData = body.knownPlace!;
+    distance = body.knownLegs!.length > 0 ? { legs: body.knownLegs! } : null;
+  } else {
+    const lookup = await findPlace(place);
+    if (!lookup.ok) {
+      if (lookup.reason === "api_error") {
+        console.error("Google Places API error:", lookup.detail);
+        return NextResponse.json(
+          { error: "Location lookup is temporarily unavailable. Please try again shortly." },
+          { status: 502 }
+        );
+      }
+      return NextResponse.json(
+        { error: "Place not found. Try being more specific." },
+        { status: 400 }
+      );
+    }
+    placeData = lookup.place;
+    distance = from ? await getDistance(from, placeData) : null;
+  }
 
   let scored;
   try {
@@ -79,6 +140,9 @@ export async function POST(req: Request) {
     selected_mode: mode,
     lat: placeData.lat,
     lng: placeData.lng,
+    rating: placeData.rating,
+    user_ratings_total: placeData.user_ratings_total,
+    price_level: placeData.price_level,
   };
 
   return NextResponse.json(result);

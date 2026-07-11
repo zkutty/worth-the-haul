@@ -100,7 +100,7 @@ function buildUserMessage(
   return lines.join("\n");
 }
 
-function parseScoreJson(text: string): Omit<
+export function parseScoreJson(text: string): Omit<
   ScoreResult,
   "place_name" | "maps_query" | "legs" | "selected_mode" | "lat" | "lng"
 > {
@@ -108,6 +108,11 @@ function parseScoreJson(text: string): Omit<
   const parsed = JSON.parse(trimmed);
   const fire = Math.max(1, Math.min(10, Number(parsed.fire)));
   const schlep = Math.max(1, Math.min(10, Number(parsed.schlep)));
+  if (!Number.isFinite(fire) || !Number.isFinite(schlep)) {
+    throw new Error(
+      `Claude returned non-numeric score: fire=${parsed.fire}, schlep=${parsed.schlep}`
+    );
+  }
   const verdict: Verdict = VALID_VERDICTS.includes(parsed.verdict)
     ? parsed.verdict
     : "Worth It";

@@ -17,6 +17,11 @@ export type ScoreRequest = {
   from?: string;
   mode?: TravelMode;
   lockFire?: LockedFire;
+  // When rescoring an existing result for a new mode, the client already
+  // has the place + travel legs — send them back so the server can skip
+  // re-querying Google entirely.
+  knownPlace?: PlaceData;
+  knownLegs?: DistanceLeg[];
 };
 
 export type DistanceLeg = {
@@ -46,6 +51,9 @@ export type ScoreResult = {
   selected_mode?: TravelMode;
   lat?: number;
   lng?: number;
+  rating?: number;
+  user_ratings_total?: number;
+  price_level?: number;
 };
 
 export type PlaceData = {
