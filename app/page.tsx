@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ScoreBar from "@/components/ScoreBar";
 import VerdictCard from "@/components/VerdictCard";
 import MapEmbed from "@/components/MapEmbed";
@@ -27,6 +27,25 @@ const EXAMPLES: { place: string; from: string }[] = [
   { place: "Joe's Pizza, NYC", from: "Midtown Manhattan" },
 ];
 
+const MAX_INPUT_LENGTH = 200;
+const SHARE_PARAM = "s";
+
+function encodeResult(result: ScoreResult): string {
+  const json = JSON.stringify(result);
+  const base64 = btoa(unescape(encodeURIComponent(json)));
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodeResult(encoded: string): ScoreResult | null {
+  try {
+    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(escape(atob(base64)));
+    return JSON.parse(json) as ScoreResult;
+  } catch {
+    return null;
+  }
+}
+
 function Skeleton() {
   return (
     <div className="space-y-4">
@@ -48,7 +67,8 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ScoreResult | null>(null);
   const [shareLabel, setShareLabel] = useState("Share");
-  const [rescoring, setRescoring] = useState(false);
+  const [rescoringMode, setRescoringMode] = useState<TravelMode | null>(null);
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
     const handler = (event: PromiseRejectionEvent) => {
@@ -60,14 +80,47 @@ export default function Page() {
     return () => window.removeEventListener("unhandledrejection", handler);
   }, []);
 
-  const fetchScore = async (mode?: TravelMode, replaceResult = true) => {
-    if (!place.trim()) return;
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shared = params.get(SHARE_PARAM);
+    if (!shared) return;
+    const decoded = decodeResult(shared);
+    if (decoded) {
+      setResult(decoded);
+      setPlace(decoded.place_name);
+      setFrom(decoded.from ?? "");
+    }
+  }, []);
+
+  const fetchScore = async (opts?: {
+    mode?: TravelMode;
+    replaceResult?: boolean;
+    placeOverride?: string;
+    fromOverride?: string;
+  }) => {
+    const mode = opts?.mode;
+    const replaceResult = opts?.replaceResult ?? true;
+    const placeValue = (opts?.placeOverride ?? place).trim();
+    const fromValue = (opts?.fromOverride ?? from).trim();
+    if (!placeValue) return;
+
+    const seq = ++requestSeqRef.current;
     let lockFire;
+    let knownPlace;
+    let knownLegs;
+
     if (replaceResult) {
+      window.history.replaceState(null, "", window.location.pathname);
       setLoading(true);
       setResult(null);
     } else {
-      setRescoring(true);
+      setRescoringMode(mode ?? null);
       // Mode rescores must not move the fire score, so send back the
       // fire we're already showing and let the server pin it.
       if (result) {
@@ -76,6 +129,17 @@ export default function Page() {
           fire_reason: result.fire_reason,
           fire_details: result.fire_details,
         };
+        // The place and every travel leg are already known — the server
+        // can skip re-querying Google entirely for a mode-only rescore.
+        knownPlace = {
+          name: result.place_name,
+          rating: result.rating,
+          user_ratings_total: result.user_ratings_total,
+          price_level: result.price_level,
+          lat: result.lat,
+          lng: result.lng,
+        };
+        knownLegs = result.legs;
       }
     }
     setError(null);
@@ -84,39 +148,46 @@ export default function Page() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          place: place.trim(),
-          from: from.trim() || undefined,
+          place: placeValue,
+          from: fromValue || undefined,
           mode,
           lockFire,
+          knownPlace,
+          knownLegs,
         }),
       });
       const data = await res.json();
+      if (seq !== requestSeqRef.current) return;
       if (!res.ok) {
         setError(data.error ?? "Something went wrong.");
       } else {
         setResult(data as ScoreResult);
       }
     } catch {
+      if (seq !== requestSeqRef.current) return;
       setError("Network error. Try again.");
     } finally {
-      setLoading(false);
-      setRescoring(false);
+      if (seq === requestSeqRef.current) {
+        setLoading(false);
+        setRescoringMode(null);
+      }
     }
   };
 
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    fetchScore(undefined, true);
+    fetchScore();
   };
 
   const onShare = async () => {
     if (!result) return;
+    const url = `${window.location.origin}${window.location.pathname}?${SHARE_PARAM}=${encodeResult(result)}`;
     const text = [
       `Worth The Haul scored: ${result.place_name}`,
       `🔥 Fire: ${result.fire}/10 — ${result.fire_reason}`,
       `😮‍💨 Schlep: ${result.schlep}/10 — ${result.schlep_reason}`,
       `Verdict: ${result.verdict}`,
-      `https://worththehaul.app`,
+      url,
     ].join("\n");
     try {
       await navigator.clipboard.writeText(text);
@@ -154,6 +225,7 @@ export default function Page() {
             value={place}
             onChange={(e) => setPlace(e.target.value)}
             placeholder="e.g. Benu SF, hiking Mt Tam, SFO → JFK"
+            maxLength={MAX_INPUT_LENGTH}
             className="w-full rounded-xl border px-4 py-3 outline-none focus:border-orange-500"
             style={{
               background: "var(--surface)",
@@ -173,6 +245,7 @@ export default function Page() {
             value={from}
             onChange={(e) => setFrom(e.target.value)}
             placeholder="e.g. Hayes Valley, SF (optional)"
+            maxLength={MAX_INPUT_LENGTH}
             className="w-full rounded-xl border px-4 py-3 outline-none focus:border-orange-500"
             style={{
               background: "var(--surface)",
@@ -199,6 +272,7 @@ export default function Page() {
               onClick={() => {
                 setPlace(ex.place);
                 setFrom(ex.from);
+                fetchScore({ placeOverride: ex.place, fromOverride: ex.from });
               }}
               className="rounded-full border px-3 py-1 text-xs transition-colors hover:border-orange-500"
               style={{
@@ -252,12 +326,13 @@ export default function Page() {
               <div className="flex flex-wrap gap-2">
                 {result.legs.map((leg) => {
                   const selected = result.selected_mode === leg.mode;
+                  const isRescoringThis = rescoringMode === leg.mode;
                   return (
                     <button
                       key={leg.mode}
                       type="button"
-                      onClick={() => fetchScore(leg.mode, false)}
-                      disabled={rescoring}
+                      onClick={() => fetchScore({ mode: leg.mode, replaceResult: false })}
+                      disabled={rescoringMode !== null}
                       className="rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50"
                       style={{
                         borderColor: selected ? "var(--fire)" : "var(--border)",
@@ -265,8 +340,11 @@ export default function Page() {
                         background: "var(--surface)",
                       }}
                     >
-                      {MODE_EMOJI[leg.mode]} {MODE_LABEL[leg.mode]} · {leg.duration}
-                      <span style={{ color: "var(--muted)" }}> · {leg.distance}</span>
+                      {isRescoringThis ? "⏳" : MODE_EMOJI[leg.mode]} {MODE_LABEL[leg.mode]}
+                      {isRescoringThis ? " · rescoring…" : ` · ${leg.duration}`}
+                      {!isRescoringThis && (
+                        <span style={{ color: "var(--muted)" }}> · {leg.distance}</span>
+                      )}
                     </button>
                   );
                 })}
@@ -280,11 +358,6 @@ export default function Page() {
               style={{ color: "var(--muted)" }}
             >
               📍 {result.distance_note}
-              {rescoring && (
-                <span className="ml-2" style={{ color: "var(--fire)" }}>
-                  rescoring…
-                </span>
-              )}
             </div>
           )}
 
