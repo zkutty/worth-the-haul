@@ -57,6 +57,13 @@ const VALID_VERDICTS: Verdict[] = [
   "Hard Pass",
 ];
 
+class ModelOutputError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ModelOutputError";
+  }
+}
+
 function getClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set");
@@ -147,16 +154,28 @@ export async function scoreWithClaude(
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     });
-    const block = response.content[0];
-    if (!block || block.type !== "text") {
-      throw new Error("No text block in Claude response");
+
+    try {
+      const block = response.content[0];
+      if (!block || block.type !== "text") {
+        throw new Error("No text block in Claude response");
+      }
+      return parseScoreJson(block.text);
+    } catch (error) {
+      throw new ModelOutputError("Claude returned unusable score output", {
+        cause: error,
+      });
     }
-    return parseScoreJson(block.text);
   };
 
   try {
     return await callOnce();
-  } catch {
+  } catch (error) {
+    if (!(error instanceof ModelOutputError)) {
+      throw error;
+    }
+
+    console.warn("Retrying Claude score after unusable model output", error);
     return await callOnce();
   }
 }
