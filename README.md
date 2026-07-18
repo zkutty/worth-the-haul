@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Worth The Haul
 
-## Getting Started
+Worth The Haul scores a place or experience on two axes: how good it is (the **Fire Score**) and how difficult it is to reach (the **Schlep Score**). It combines Google place and travel data with Claude to produce a verdict, supporting details, and shareable results.
 
-First, run the development server:
+The original product requirements are in [THE_REACH.md](./THE_REACH.md).
+
+## Local development
+
+Requirements:
+
+- Node.js 22 or later
+- A Google Maps API key with the required Places and Routes APIs enabled
+- An Anthropic API key
+
+Install dependencies and create the local environment file:
+
+```bash
+npm install
+cp .env.example .env.local
+```
+
+Set both values in `.env.local`:
+
+```dotenv
+GOOGLE_MAPS_API_KEY=your_key_here
+ANTHROPIC_API_KEY=your_key_here
+```
+
+`npm run dev` deliberately removes inherited Anthropic environment variables before Next.js starts, so put the development key in `.env.local` instead of relying on a shell-level `ANTHROPIC_API_KEY`.
+
+Start the app and open [http://localhost:3000](http://localhost:3000):
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Quality checks
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Run the same checks enforced in CI:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
 
-## Learn More
+## Cloudflare Workers
 
-To learn more about Next.js, take a look at the following resources:
+Production is built with OpenNext and deployed to Cloudflare Workers. For a local Cloudflare preview, copy `.dev.vars.example` to `.dev.vars`, add the two API keys, and run:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+cp .dev.vars.example .dev.vars
+npm run cf:preview
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Before the first production deployment, store both API keys as Worker secrets:
 
-## Deploy on Vercel
+```bash
+npx wrangler secret put GOOGLE_MAPS_API_KEY
+npx wrangler secret put ANTHROPIC_API_KEY
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Build and deploy the Worker configured in `wrangler.jsonc`:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run cf:deploy
+```
+
+The Worker serves the custom domains `worththehaul.app` and `www.worththehaul.app`.

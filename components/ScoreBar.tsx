@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AnimatedNumber from "./AnimatedNumber";
 
 type Props = {
   value: number;
@@ -58,7 +59,7 @@ export default function ScoreBar({
           className="font-display text-5xl leading-none"
           style={{ color }}
         >
-          {value.toFixed(1)}
+          <AnimatedNumber value={value} />
           <span
             className="text-2xl"
             style={{ color: "var(--muted)" }}
