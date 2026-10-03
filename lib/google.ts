@@ -14,6 +14,21 @@ function getKey(): string {
   return key;
 }
 
+// Provider text may contain project IDs or request data. Match only known
+// configuration causes and keep the text itself out of errors and logs.
+function deniedCode(message: unknown): string {
+  if (typeof message !== "string") return "REQUEST_DENIED";
+  const text = message.toLowerCase();
+  if (text.includes("legacyapinotactivatedmaperror") ||
+      (text.includes("legacy api") && text.includes("not enabled"))) return "legacy_api_not_enabled";
+  if (text.includes("billing") && (text.includes("enable") || text.includes("disabled"))) return "billing_not_enabled";
+  if (text.includes("api key") && text.includes("invalid")) return "key_invalid";
+  if (text.includes("referer restrictions") || text.includes("referrer restrictions")) return "key_referrer_restriction";
+  if (text.includes("ip address") && (text.includes("blocked") || text.includes("not authorized"))) return "key_ip_restriction";
+  if (text.includes("not authorized to use this api") || text.includes("not authorized to use this service")) return "api_not_authorized";
+  return "REQUEST_DENIED";
+}
+
 async function googleJson(url: string, provider: "places" | "routes") {
   let response: Response;
   try {
@@ -39,7 +54,7 @@ async function googleJson(url: string, provider: "places" | "routes") {
   switch (data.status) {
     case "OK":
     case "ZERO_RESULTS": return data;
-    case "REQUEST_DENIED":
+    case "REQUEST_DENIED": throw new ProviderError(provider, "configuration", deniedCode(data.error_message));
     case "INVALID_REQUEST": throw new ProviderError(provider, "configuration", data.status);
     case "OVER_QUERY_LIMIT":
     case "OVER_DAILY_LIMIT": throw new ProviderError(provider, "quota", data.status);

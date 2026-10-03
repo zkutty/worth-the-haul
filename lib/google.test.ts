@@ -30,6 +30,19 @@ describe("Google provider failure classification", () => {
     fetchMock.mockResolvedValue(new Response("private response", { status }));
     await expect(findPlace("fixture")).rejects.toMatchObject({ kind, code: `http_${status}` });
   });
+  it.each([
+    ["Legacy API is not enabled for private-project", "legacy_api_not_enabled"],
+    ["Billing must be enabled on private-project", "billing_not_enabled"],
+    ["The provided API key is invalid: private-key", "key_invalid"],
+    ["API keys with referer restrictions cannot be used with this API", "key_referrer_restriction"],
+    ["Requests from this IP address private-ip are blocked", "key_ip_restriction"],
+    ["This API project is not authorized to use this API", "api_not_authorized"],
+    ["private unknown details", "REQUEST_DENIED"],
+  ])("records only a fixed denial classification", async (error_message, code) => {
+    fetchMock.mockResolvedValue(Response.json({ status: "REQUEST_DENIED", error_message }));
+    await expect(findPlace("fixture")).rejects.toMatchObject({ kind: "configuration", code });
+    await expect(findPlace("fixture")).rejects.not.toThrow(error_message);
+  });
   it("controls network exceptions, invalid JSON, and missing keys", async () => {
     fetchMock.mockRejectedValueOnce(new Error("secret key/url"));
     await expect(findPlace("fixture")).rejects.toMatchObject({ kind: "network", code: "fetch_failed" });
