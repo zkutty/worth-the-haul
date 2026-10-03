@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "worth-the-haul",
-  "main": ".open-next/worker.js",
+  "main": "worker.ts",
   "compatibility_date": "2025-03-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
@@ -14,5 +14,33 @@
   ],
   "observability": {
     "enabled": true
+  },
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "vars": {
+    "SCORE_ENABLED": "true",
+    "SCORE_DAILY_LIMIT": "0",
+    "SCORE_CLIENT_LIMIT": "20",
+    "SCORE_CLIENT_WINDOW_SECONDS": "60"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "SCORE_BUDGET", "class_name": "ScoreBudget" }]
+  },
+  "migrations": [{ "tag": "score-budget-v1", "new_sqlite_classes": ["ScoreBudget"] }],
+  "env": {
+    "development": {
+      "name": "worth-the-haul-development",
+      "routes": [],
+      "workers_dev": true,
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
+      "vars": {
+        "SCORE_ENABLED": "true",
+        "SCORE_DAILY_LIMIT": "0",
+        "SCORE_CLIENT_LIMIT": "20",
+        "SCORE_CLIENT_WINDOW_SECONDS": "60"
+      },
+      "durable_objects": {
+        "bindings": [{ "name": "SCORE_BUDGET", "class_name": "ScoreBudget" }]
+      }
+    }
   }
 }
