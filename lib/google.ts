@@ -32,7 +32,7 @@ function deniedCode(message: unknown): string {
 async function googleJson(url: string, provider: "places" | "routes") {
   let response: Response;
   try {
-    response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
   } catch {
     throw new ProviderError(provider, "network", "fetch_failed");
   }
@@ -62,12 +62,21 @@ async function googleJson(url: string, provider: "places" | "routes") {
   }
 }
 
+function optionalText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function optionalNumber(value: unknown, min: number, max: number, integer = false): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max &&
+    (!integer || Number.isSafeInteger(value)) ? value : undefined;
+}
+
 export async function findPlace(input: string): Promise<PlaceData | null> {
   const key = getKey();
   const params = new URLSearchParams({
     input,
     inputtype: "textquery",
-    fields: "name,rating,user_ratings_total,price_level,geometry,formatted_address",
+    fields: "name,place_id,rating,price_level,geometry,formatted_address",
     key,
   });
   const data = await googleJson(`${PLACES_URL}?${params.toString()}`, "places");
@@ -76,14 +85,21 @@ export async function findPlace(input: string): Promise<PlaceData | null> {
   if (!candidate || typeof candidate.name !== "string" || !candidate.name.trim()) {
     throw new ProviderError("places", "response", "invalid_candidate");
   }
-  return {
-    name: candidate.name ?? input,
-    rating: candidate.rating,
-    user_ratings_total: candidate.user_ratings_total,
-    price_level: candidate.price_level,
-    lat: candidate.geometry?.location?.lat,
-    lng: candidate.geometry?.location?.lng,
+  const place: PlaceData = { name: candidate.name };
+  const fields = {
+    formatted_address: optionalText(candidate.formatted_address),
+    place_id: optionalText(candidate.place_id),
+    rating: optionalNumber(candidate.rating, 1, 5),
+    user_ratings_total: optionalNumber(candidate.user_ratings_total, 0, Number.MAX_SAFE_INTEGER, true),
+    price_level: optionalNumber(candidate.price_level, 0, 4, true),
+    lat: optionalNumber(candidate.geometry?.location?.lat, -90, 90),
+    lng: optionalNumber(candidate.geometry?.location?.lng, -180, 180),
   };
+  // Missing or malformed optional facts remain absent, never coerced to zero.
+  for (const [field, value] of Object.entries(fields)) {
+    if (value !== undefined) Object.assign(place, { [field]: value });
+  }
+  return place;
 }
 
 async function distanceMatrixOne(
@@ -119,10 +135,13 @@ export async function getDistance(
   origin: string,
   place: PlaceData
 ): Promise<DistanceData> {
-  const destination =
-    place.lat !== undefined && place.lng !== undefined
+  const destination = optionalText(place.place_id)
+    ? `place_id:${place.place_id}`
+    : optionalNumber(place.lat, -90, 90) !== undefined && optionalNumber(place.lng, -180, 180) !== undefined
       ? `${place.lat},${place.lng}`
-      : place.name;
+      : undefined;
+  // A name-only lookup may route to a different branch than the resolved place.
+  if (!destination) return null;
   const results = await Promise.all(
     MODES.map((mode) => distanceMatrixOne(origin, destination, mode))
   );

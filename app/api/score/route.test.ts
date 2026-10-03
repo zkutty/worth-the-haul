@@ -12,7 +12,7 @@ import { POST } from "./route";
 const validScore = {
   fire: 8, schlep: 3, fire_reason: "Excellent.", fire_details: ["Distinctive."],
   schlep_reason: "An easy trip.", schlep_details: ["Direct route."],
-  verdict: "Worth It", verdict_reason: "Quality outweighs effort.", distance_note: "Nearby",
+  verdict: "Worth It", verdict_reason: "Quality outweighs effort.", distance_note: "Nearby", mode_estimates: [],
 };
 function request(payload: unknown) {
   return new Request("http://localhost/api/score", { method: "POST", body: JSON.stringify(payload) });
@@ -39,6 +39,9 @@ describe("score route contracts and failure recovery", () => {
     { place: "Example", from: {} }, { place: "Example", from: "x".repeat(151) },
     { place: "Example", mode: "flying" }, { place: "Example", lockFire: [] },
     { place: "Example", lockFire: { fire: 2, fire_reason: "reason", fire_details: [4] } },
+    { place: "Example", lockFire: { fire: 7, fire_reason: "Original", fire_details: [] } },
+    { place: "Example", knownPlace: { name: "Spoofed", rating: 5 } },
+    { place: "Example", knownLegs: [] }, { place: "Example", context: {} },
     { place: "Example", hiddenPayload: "extra" },
   ])("rejects invalid shape/types/fields before any upstream call: %j", async payload => {
     const response = await POST(request(payload));
@@ -102,13 +105,39 @@ describe("score route contracts and failure recovery", () => {
     expect(JSON.stringify(await response.json())).not.toContain("private upstream text");
     expect(console.error).not.toHaveBeenCalledWith(expect.anything(), expect.any(Error));
   });
-  it("accepts valid supported input and usable results including a bounded mode rescore", async () => {
-    const payload = { place: " Example ", from: " Origin ", mode: "walking", lockFire: { fire: 7, fire_reason: "Original quality.", fire_details: ["Original detail."] } };
-    const response = await POST(request(payload));
+  it("returns committed resolved facts with unknown travel when no origin is supplied", async () => {
+    const response = await POST(request({ place: " Example " }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ fire: 7, schlep: 3, verdict: "Worth It", selected_mode: "walking", place_name: "Example" });
+    expect(await response.json()).toMatchObject({ fire: 8, schlep: 3, verdict: "Legendary Haul", place_name: "Example", resolvedPlace: { name: "Example", lat: 37, lng: -122 }, evidence: { provider: "google_maps", assessment: "ai_estimate" }, legs: [], mode_estimates: [], distance_note: "Travel time unknown" });
     expect(lookup).toHaveBeenCalledWith("Example");
-    expect(distance).toHaveBeenCalledWith("Origin", expect.any(Object));
+    expect(distance).not.toHaveBeenCalled();
     expect(score).toHaveBeenCalledTimes(1);
+  });
+  it.each([undefined, "walking", "transit"])("selects an available coherent initial mode for preference %s", async mode => {
+    distance.mockResolvedValue({ legs: [
+      { mode: "driving", duration: "30 mins", distance: "20 km", durationSeconds: 1800 },
+      { mode: "walking", duration: "3 hours", distance: "15 km", durationSeconds: 10800 },
+    ] });
+    score.mockResolvedValue({ ...validScore, mode_estimates: [{ mode: "driving", schlep: 3, reason: "Driving estimate." }, { mode: "walking", schlep: 9, reason: "Walking estimate." }] });
+    const response = await POST(request({ place: " Example ", from: " Origin ", mode }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ fire: 8, schlep: mode === "walking" ? 9 : 3, verdict: mode === "walking" ? "Hard Pass" : "Legendary Haul", selected_mode: mode === "walking" ? "walking" : "driving", from: "Origin" });
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(distance).toHaveBeenCalledWith("Origin", expect.objectContaining({ name: "Example" }));
+    expect(score).toHaveBeenCalledTimes(1);
+  });
+  it("fails controlled when supplied-mode estimates are incomplete or scores are invalid", async () => {
+    distance.mockResolvedValue({ legs: [{ mode: "walking", duration: "30 mins", distance: "2 km", durationSeconds: 1800 }] });
+    expect((await POST(request({ place: "Example", from: "Origin" }))).status).toBe(502);
+    distance.mockResolvedValue(null);
+    score.mockResolvedValue({ ...validScore, fire: 0 });
+    expect((await POST(request({ place: "Example" }))).status).toBe(502);
+  });
+  it("preserves a one-sided valid coordinate without treating travel as measured", async () => {
+    lookup.mockResolvedValue({ name: "Example", lat: 37 });
+    distance.mockResolvedValue(null);
+    const response = await POST(request({ place: "Example", from: "Origin" }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ resolvedPlace: { name: "Example", lat: 37 }, distance_note: "Travel time unknown", from: "Origin" });
   });
 });

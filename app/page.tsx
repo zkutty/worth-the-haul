@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ScoreBar from "@/components/ScoreBar";
-import VerdictCard from "@/components/VerdictCard";
+import DecisionSummary from "@/components/DecisionSummary";
+import DecisionEvidence from "@/components/DecisionEvidence";
+import { useScore } from "@/lib/use-score";
 import MapEmbed from "@/components/MapEmbed";
 import RatioCard from "@/components/RatioCard";
 import { MAX_FROM_LENGTH, MAX_PLACE_LENGTH } from "@/lib/score-contract";
-import type { ScoreResult, TravelMode } from "@/lib/types";
+import type { TravelMode } from "@/lib/types";
 
 const MODE_EMOJI: Record<TravelMode, string> = {
   driving: "🚗",
@@ -45,69 +47,23 @@ function Skeleton() {
 export default function Page() {
   const [place, setPlace] = useState("");
   const [from, setFrom] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ScoreResult | null>(null);
+  const { result, loading, error, completedSearchId, search, selectMode } = useScore();
   const [shareLabel, setShareLabel] = useState("Share");
-  const [rescoring, setRescoring] = useState(false);
+  const placeInput = useRef<HTMLInputElement>(null);
+  const resultSummary = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const handler = (event: PromiseRejectionEvent) => {
-      if (event.reason == null) {
-        event.preventDefault();
-      }
-    };
-    window.addEventListener("unhandledrejection", handler);
-    return () => window.removeEventListener("unhandledrejection", handler);
-  }, []);
+    if (completedSearchId > 0) resultSummary.current?.focus();
+  }, [completedSearchId]);
 
-  const fetchScore = async (mode?: TravelMode, replaceResult = true) => {
-    if (!place.trim()) return;
-    let lockFire;
-    if (replaceResult) {
-      setLoading(true);
-      setResult(null);
-    } else {
-      setRescoring(true);
-      // Mode rescores must not move the fire score, so send back the
-      // fire we're already showing and let the server pin it.
-      if (result) {
-        lockFire = {
-          fire: result.fire,
-          fire_reason: result.fire_reason,
-          fire_details: result.fire_details,
-        };
-      }
-    }
-    setError(null);
-    try {
-      const res = await fetch("/api/score", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          place: place.trim(),
-          from: from.trim() || undefined,
-          mode,
-          lockFire,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "Something went wrong.");
-      } else {
-        setResult(data as ScoreResult);
-      }
-    } catch {
-      setError("Network error. Try again.");
-    } finally {
-      setLoading(false);
-      setRescoring(false);
-    }
+  const correctDestination = () => {
+    placeInput.current?.focus();
+    placeInput.current?.select();
   };
-
-  const submit = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    fetchScore(undefined, true);
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!place.trim()) return;
+    void search({ place: place.trim(), ...(from.trim() ? { from: from.trim() } : {}) });
   };
 
   const onShare = async () => {
@@ -146,16 +102,19 @@ export default function Page() {
       <form onSubmit={submit} className="space-y-3">
         <div>
           <label
+            htmlFor="place"
             className="mb-1 block text-xs uppercase tracking-wider"
             style={{ color: "var(--muted)" }}
           >
             What are you scoring?
           </label>
           <input
+            id="place"
+            ref={placeInput}
             value={place}
             maxLength={MAX_PLACE_LENGTH}
             onChange={(e) => setPlace(e.target.value)}
-            placeholder="e.g. Benu SF, hiking Mt Tam, SFO → JFK"
+            placeholder="e.g. Benu, San Francisco"
             className="w-full rounded-xl border px-4 py-3 outline-none focus:border-orange-500"
             style={{
               background: "var(--surface)",
@@ -166,12 +125,14 @@ export default function Page() {
         </div>
         <div>
           <label
+            htmlFor="from"
             className="mb-1 block text-xs uppercase tracking-wider"
             style={{ color: "var(--muted)" }}
           >
             Starting from?
           </label>
           <input
+            id="from"
             value={from}
             maxLength={MAX_FROM_LENGTH}
             onChange={(e) => setFrom(e.target.value)}
@@ -187,11 +148,11 @@ export default function Page() {
 
         <button
           type="submit"
-          disabled={loading || !place.trim()}
+          disabled={!place.trim()}
           className="font-display w-full rounded-xl py-4 text-2xl tracking-wider transition-opacity disabled:opacity-50"
           style={{ background: "var(--fire)", color: "#fff" }}
         >
-          {loading ? "SCORING…" : "SCORE IT →"}
+          {loading ? "SCORE NEW TRIP →" : "SCORE IT →"}
         </button>
 
         <div className="flex flex-wrap gap-2 pt-1">
@@ -216,8 +177,15 @@ export default function Page() {
         </div>
       </form>
 
+      <p role="status" aria-live="polite" className="mt-4 text-sm" style={{ color: "var(--muted)" }}>
+        {loading ? "Scoring your destination…" : result
+          ? `AI estimate ready${result.selected_mode ? ` for ${MODE_LABEL[result.selected_mode]}` : "; travel time unknown"}.`
+          : ""}
+      </p>
+
       {error && (
         <div
+          role="alert"
           className="mt-6 rounded-xl border p-4 text-sm"
           style={{
             borderColor: "#FF3B3B",
@@ -236,13 +204,8 @@ export default function Page() {
       )}
 
       {result && !loading && (
-        <section className="mt-8 space-y-4">
-          <MapEmbed
-            query={result.maps_query}
-            name={result.place_name}
-            lat={result.lat}
-            lng={result.lng}
-          />
+        <section ref={resultSummary} tabIndex={-1} aria-labelledby="decision-heading" className="mt-8 space-y-4">
+          <DecisionSummary result={result} onCorrect={correctDestination} />
 
           {result.legs.length > 0 && (
             <div>
@@ -250,7 +213,7 @@ export default function Page() {
                 className="mb-2 text-[10px] uppercase tracking-wider"
                 style={{ color: "var(--muted)" }}
               >
-                Pick your mode to rescore
+                Choose travel mode · uses this trip’s existing estimates
               </div>
               <div className="flex flex-wrap gap-2">
                 {result.legs.map((leg) => {
@@ -259,8 +222,8 @@ export default function Page() {
                     <button
                       key={leg.mode}
                       type="button"
-                      onClick={() => fetchScore(leg.mode, false)}
-                      disabled={rescoring}
+                      onClick={() => selectMode(leg.mode)}
+                      aria-pressed={selected}
                       className="rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50"
                       style={{
                         borderColor: selected ? "var(--fire)" : "var(--border)",
@@ -283,18 +246,13 @@ export default function Page() {
               style={{ color: "var(--muted)" }}
             >
               📍 {result.distance_note}
-              {rescoring && (
-                <span className="ml-2" style={{ color: "var(--fire)" }}>
-                  rescoring…
-                </span>
-              )}
             </div>
           )}
 
           <ScoreBar
             value={result.fire}
             color="var(--fire)"
-            label="FIRE"
+            label="FIRE · AI ESTIMATE"
             emoji="🔥"
             reason={result.fire_reason}
             details={result.fire_details}
@@ -304,7 +262,7 @@ export default function Page() {
           <ScoreBar
             value={result.schlep}
             color="var(--schlep)"
-            label="SCHLEP"
+            label="SCHLEP · AI ESTIMATE"
             emoji="😮‍💨"
             reason={result.schlep_reason}
             details={result.schlep_details}
@@ -313,9 +271,15 @@ export default function Page() {
 
           <RatioCard fire={result.fire} schlep={result.schlep} />
 
-          <VerdictCard
-            verdict={result.verdict}
-            reason={result.verdict_reason}
+          <DecisionEvidence result={result} onCorrect={correctDestination} />
+
+          <MapEmbed
+            query={result.maps_query}
+            name={result.place_name}
+            lat={result.lat}
+            lng={result.lng}
+            placeId={result.resolvedPlace?.place_id}
+            address={result.resolvedPlace?.formatted_address}
           />
 
           <button
