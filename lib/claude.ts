@@ -1,10 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { parseModelScore, type ModelScore } from "./score-contract";
 import type {
   DistanceData,
   PlaceData,
-  ScoreResult,
   TravelMode,
-  Verdict,
 } from "./types";
 
 const MODEL = "claude-haiku-4-5-20251001";
@@ -50,16 +49,9 @@ Return ONLY valid JSON, no backticks, no preamble:
 Each bullet should be one short, concrete sentence — no fluff, no hedging.
 If a category genuinely doesn't apply, omit that bullet rather than padding.`;
 
-const VALID_VERDICTS: Verdict[] = [
-  "Legendary Haul",
-  "Worth It",
-  "Barely Worth It",
-  "Hard Pass",
-];
-
 class ModelOutputError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
+  constructor() {
+    super("Claude returned unusable score output");
     this.name = "ModelOutputError";
   }
 }
@@ -67,7 +59,7 @@ class ModelOutputError extends Error {
 function getClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set");
-  return new Anthropic({ apiKey: key });
+  return new Anthropic({ apiKey: key, maxRetries: 0, timeout: 20_000 });
 }
 
 function buildUserMessage(
@@ -107,32 +99,9 @@ function buildUserMessage(
   return lines.join("\n");
 }
 
-function parseScoreJson(text: string): Omit<
-  ScoreResult,
-  "place_name" | "maps_query" | "legs" | "selected_mode" | "lat" | "lng"
-> {
+function parseScoreJson(text: string): ModelScore {
   const trimmed = text.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
-  const parsed = JSON.parse(trimmed);
-  const fire = Math.max(1, Math.min(10, Number(parsed.fire)));
-  const schlep = Math.max(1, Math.min(10, Number(parsed.schlep)));
-  const verdict: Verdict = VALID_VERDICTS.includes(parsed.verdict)
-    ? parsed.verdict
-    : "Worth It";
-  const toBullets = (v: unknown): string[] =>
-    Array.isArray(v)
-      ? v.map((x) => String(x).trim()).filter((s) => s.length > 0)
-      : [];
-  return {
-    fire,
-    schlep,
-    fire_reason: String(parsed.fire_reason ?? ""),
-    fire_details: toBullets(parsed.fire_details),
-    schlep_reason: String(parsed.schlep_reason ?? ""),
-    schlep_details: toBullets(parsed.schlep_details),
-    verdict,
-    verdict_reason: String(parsed.verdict_reason ?? ""),
-    distance_note: String(parsed.distance_note ?? ""),
-  };
+  return parseModelScore(JSON.parse(trimmed));
 }
 
 export async function scoreWithClaude(
@@ -141,9 +110,7 @@ export async function scoreWithClaude(
   distance: DistanceData,
   rawPlace: string,
   preferredMode?: TravelMode
-): Promise<
-  Omit<ScoreResult, "place_name" | "maps_query" | "legs" | "selected_mode" | "lat" | "lng">
-> {
+): Promise<ModelScore> {
   const client = getClient();
   const userMessage = buildUserMessage(place, from, distance, rawPlace, preferredMode);
 
@@ -161,10 +128,10 @@ export async function scoreWithClaude(
         throw new Error("No text block in Claude response");
       }
       return parseScoreJson(block.text);
-    } catch (error) {
-      throw new ModelOutputError("Claude returned unusable score output", {
-        cause: error,
-      });
+    } catch {
+      // JSON parse errors can contain raw response text; keep them out of logs
+      // and out of the error propagated to the route.
+      throw new ModelOutputError();
     }
   };
 
@@ -175,7 +142,7 @@ export async function scoreWithClaude(
       throw error;
     }
 
-    console.warn("Retrying Claude score after unusable model output", error);
+    console.warn("Retrying Claude score after unusable model output");
     return await callOnce();
   }
 }

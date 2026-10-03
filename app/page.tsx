@@ -5,6 +5,7 @@ import ScoreBar from "@/components/ScoreBar";
 import VerdictCard from "@/components/VerdictCard";
 import MapEmbed from "@/components/MapEmbed";
 import RatioCard from "@/components/RatioCard";
+import { MAX_FROM_LENGTH, MAX_PLACE_LENGTH } from "@/lib/score-contract";
 import type { ScoreResult, TravelMode } from "@/lib/types";
 
 const MODE_EMOJI: Record<TravelMode, string> = {
@@ -152,6 +153,7 @@ export default function Page() {
           </label>
           <input
             value={place}
+            maxLength={MAX_PLACE_LENGTH}
             onChange={(e) => setPlace(e.target.value)}
             placeholder="e.g. Benu SF, hiking Mt Tam, SFO → JFK"
             className="w-full rounded-xl border px-4 py-3 outline-none focus:border-orange-500"
@@ -171,6 +173,7 @@ export default function Page() {
           </label>
           <input
             value={from}
+            maxLength={MAX_FROM_LENGTH}
             onChange={(e) => setFrom(e.target.value)}
             placeholder="e.g. Hayes Valley, SF (optional)"
             className="w-full rounded-xl border px-4 py-3 outline-none focus:border-orange-500"

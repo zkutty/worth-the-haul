@@ -38,5 +38,11 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build
-        run: npm run build
+      - name: Verify atomic scoring budget
+        run: node scripts/check-score-budget.mjs
+
+      - name: Build Worker
+        run: npm run cf:build
+
+      - name: Validate Worker bundle
+        run: npx wrangler deploy --dry-run --env=""

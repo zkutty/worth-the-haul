@@ -4,6 +4,11 @@ Worth The Haul scores a place or experience on two axes: how good it is (the **F
 
 The original product requirements are in [THE_REACH.md](./THE_REACH.md).
 
+Scoring contracts, cost configuration, release certification, and recovery are
+documented in [the scoring runbook](./docs/scoring-operations.md). Scoring fails
+closed until a shared quota binding and an owner-selected daily request limit
+are configured. The owner-approved daily limit is 10 requests per environment.
+
 ## Local development
 
 Requirements:
