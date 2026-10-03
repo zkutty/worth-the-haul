@@ -1,4 +1,5 @@
 import type { DistanceData, DistanceLeg, PlaceData, TravelMode } from "./types";
+import type { ProviderWrapper } from "./measurement-contract";
 import { ProviderError } from "./provider-error";
 
 const PLACES_URL =
@@ -29,10 +30,12 @@ function deniedCode(message: unknown): string {
   return "REQUEST_DENIED";
 }
 
-async function googleJson(url: string, provider: "places" | "routes") {
+async function googleJson(url: string, provider: "places" | "routes", measure?: ProviderWrapper) {
   let response: Response;
   try {
-    response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+    const signal = AbortSignal.timeout(10_000);
+    const invoke = () => fetch(url, { cache: "no-store", signal });
+    response = await (measure ? measure(provider, invoke) : invoke());
   } catch {
     throw new ProviderError(provider, "network", "fetch_failed");
   }
@@ -71,7 +74,7 @@ function optionalNumber(value: unknown, min: number, max: number, integer = fals
     (!integer || Number.isSafeInteger(value)) ? value : undefined;
 }
 
-export async function findPlace(input: string): Promise<PlaceData | null> {
+export async function findPlace(input: string, measure?: ProviderWrapper): Promise<PlaceData | null> {
   const key = getKey();
   const params = new URLSearchParams({
     input,
@@ -79,7 +82,7 @@ export async function findPlace(input: string): Promise<PlaceData | null> {
     fields: "name,place_id,rating,price_level,geometry,formatted_address",
     key,
   });
-  const data = await googleJson(`${PLACES_URL}?${params.toString()}`, "places");
+  const data = await googleJson(`${PLACES_URL}?${params.toString()}`, "places", measure);
   if (data.status === "ZERO_RESULTS") return null;
   const candidate = data?.candidates?.[0];
   if (!candidate || typeof candidate.name !== "string" || !candidate.name.trim()) {
@@ -105,7 +108,8 @@ export async function findPlace(input: string): Promise<PlaceData | null> {
 async function distanceMatrixOne(
   origin: string,
   destination: string,
-  mode: TravelMode
+  mode: TravelMode,
+  measure?: ProviderWrapper
 ): Promise<DistanceLeg | null> {
   const key = getKey();
   const params = new URLSearchParams({
@@ -114,7 +118,7 @@ async function distanceMatrixOne(
     mode,
     key,
   });
-  const data = await googleJson(`${DISTANCE_URL}?${params.toString()}`, "routes");
+  const data = await googleJson(`${DISTANCE_URL}?${params.toString()}`, "routes", measure);
   if (data.status === "ZERO_RESULTS") return null;
   const element = data?.rows?.[0]?.elements?.[0];
   if (element?.status === "ZERO_RESULTS" || element?.status === "NOT_FOUND") return null;
@@ -133,7 +137,8 @@ async function distanceMatrixOne(
 
 export async function getDistance(
   origin: string,
-  place: PlaceData
+  place: PlaceData,
+  measure?: ProviderWrapper
 ): Promise<DistanceData> {
   const destination = optionalText(place.place_id)
     ? `place_id:${place.place_id}`
@@ -143,7 +148,7 @@ export async function getDistance(
   // A name-only lookup may route to a different branch than the resolved place.
   if (!destination) return null;
   const results = await Promise.all(
-    MODES.map((mode) => distanceMatrixOne(origin, destination, mode))
+    MODES.map((mode) => distanceMatrixOne(origin, destination, mode, measure))
   );
   const legs = results.filter((leg): leg is DistanceLeg => leg !== null);
   return legs.length ? { legs } : null;

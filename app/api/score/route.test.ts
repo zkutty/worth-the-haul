@@ -5,7 +5,7 @@ const { lookup, distance, score, access } = vi.hoisted(() => ({
   lookup: vi.fn(), distance: vi.fn(), score: vi.fn(), access: vi.fn(),
 }));
 vi.mock("@/lib/google", () => ({ findPlace: lookup, getDistance: distance }));
-vi.mock("@/lib/claude", () => ({ scoreWithClaude: score }));
+vi.mock("@/lib/claude", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/claude")>(), scoreWithClaude: score }));
 vi.mock("@/lib/score-access", () => ({ checkScoreAccess: access }));
 import { POST } from "./route";
 
@@ -27,6 +27,7 @@ beforeEach(() => {
   vi.stubEnv("GOOGLE_MAPS_API_KEY", "fixture");
   vi.stubEnv("ANTHROPIC_API_KEY", "fixture");
   vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "log").mockImplementation(() => {});
   lookup.mockResolvedValue({ name: "Example", lat: 37, lng: -122 });
   distance.mockResolvedValue({ legs: [] });
   score.mockImplementation(() => Promise.resolve({ ...validScore }));
@@ -109,7 +110,7 @@ describe("score route contracts and failure recovery", () => {
     const response = await POST(request({ place: " Example " }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ fire: 8, schlep: 3, verdict: "Legendary Haul", place_name: "Example", resolvedPlace: { name: "Example", lat: 37, lng: -122 }, evidence: { provider: "google_maps", assessment: "ai_estimate" }, legs: [], mode_estimates: [], distance_note: "Travel time unknown" });
-    expect(lookup).toHaveBeenCalledWith("Example");
+    expect(lookup).toHaveBeenCalledWith("Example", expect.any(Function));
     expect(distance).not.toHaveBeenCalled();
     expect(score).toHaveBeenCalledTimes(1);
   });
@@ -123,7 +124,7 @@ describe("score route contracts and failure recovery", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ fire: 8, schlep: mode === "walking" ? 9 : 3, verdict: mode === "walking" ? "Hard Pass" : "Legendary Haul", selected_mode: mode === "walking" ? "walking" : "driving", from: "Origin" });
     expect(lookup).toHaveBeenCalledTimes(1);
-    expect(distance).toHaveBeenCalledWith("Origin", expect.objectContaining({ name: "Example" }));
+    expect(distance).toHaveBeenCalledWith("Origin", expect.objectContaining({ name: "Example" }), expect.any(Function));
     expect(score).toHaveBeenCalledTimes(1);
   });
   it("fails controlled when supplied-mode estimates are incomplete or scores are invalid", async () => {

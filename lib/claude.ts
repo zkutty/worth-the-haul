@@ -1,3 +1,4 @@
+import type { ProviderWrapper } from "./measurement-contract";
 import Anthropic from "@anthropic-ai/sdk";
 import { parseModelScore, type ModelScore } from "./score-contract";
 import type {
@@ -57,7 +58,7 @@ Use at most 12 words per reason or bullet. Keep details to zero or one bullet
 per score; never repeat all modes there. Keep mode reasons concise so ALL
 supplied modes fit in the response. State uncertainty honestly.`;
 
-class ModelOutputError extends Error {
+export class ModelOutputError extends Error {
   constructor() {
     super("Claude returned unusable score output");
     this.name = "ModelOutputError";
@@ -124,18 +125,20 @@ export async function scoreWithClaude(
   from: string | undefined,
   distance: DistanceData,
   rawPlace: string,
-  preferredMode?: TravelMode
+  preferredMode?: TravelMode,
+  measure?: ProviderWrapper
 ): Promise<ModelScore> {
   const client = getClient();
   const userMessage = buildUserMessage(place, from, distance, rawPlace, preferredMode);
 
   const callOnce = async () => {
-    const response = await client.messages.create({
+    const invoke = () => client.messages.create({
       model: MODEL,
       max_tokens: 600,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     });
+    const response = await (measure ? measure("model", invoke) : invoke());
 
     try {
       const block = response.content[0];

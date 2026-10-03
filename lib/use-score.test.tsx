@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode, useLayoutEffect } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decisionFor } from "./decision";
@@ -32,7 +33,7 @@ function deferred<T>() {
 }
 function respond(value: unknown, status = 200) { return Response.json(value, { status }); }
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("immutable client trip and synchronous mode selection", () => {
   it("captures trimmed input, and edited inputs cannot change mode trip, Fire or identity", async () => {
@@ -160,5 +161,93 @@ describe("strict response validation", () => {
     await act(async () => { await result.current.search({ place: "Fresh" }); });
     expect(result.current.error).toBe("Network error. Try again.");
     expect(result.current.loading).toBe(false);
+  });
+});
+
+describe("post-commit lossy receipts", () => {
+  const operation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const attempt = "bbbbbbbb-bbbb-4bbb-9bbb-bbbbbbbbbbbb";
+  function correlated(value: unknown, attemptId = attempt) {
+    return Response.json(value, { headers: { "X-WTH-Operation-Id": operation, "X-WTH-Attempt-Id": attemptId } });
+  }
+  function receipts(mock: ReturnType<typeof vi.fn>) {
+    return mock.mock.calls.filter(call => call[0] === "/api/measurement").map(call => JSON.parse(call[1].body));
+  }
+  it("emits one validated display after commit under StrictMode and only committed mode transitions", async () => {
+    let committed = false;
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/measurement") { expect(committed).toBe(true); return new Response(null, { status: 204 }); }
+      return correlated(fixture());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => {
+      const score = useScore();
+      // Layout effects establish the commit before the passive receipt effect.
+      useLayoutEffect(() => { committed = Boolean(score.result); }, [score.result]);
+      return score;
+    }, { wrapper: StrictMode });
+    await act(async () => { await result.current.search({ place: "Original", from: "Original origin" }); });
+    expect(receipts(fetchMock)).toEqual([expect.objectContaining({ event: "decision_displayed", operation_id: operation, attempt_id: attempt })]);
+    expect(fetchMock.mock.calls[0][1].headers["X-WTH-Operation-Id"]).toMatch(/^[0-9a-f-]{36}$/);
+    act(() => { result.current.selectMode("walking"); result.current.selectMode("driving"); result.current.selectMode("walking"); });
+    expect(receipts(fetchMock).map(row => [row.event, row.mode])).toEqual([["decision_displayed", undefined], ["mode_changed", "walking"]]);
+    act(() => { result.current.selectMode("walking"); result.current.selectMode("transit"); });
+    expect(receipts(fetchMock)).toHaveLength(2);
+    act(() => { result.current.selectMode("driving"); result.current.selectMode("walking"); });
+    expect(receipts(fetchMock)).toHaveLength(2);
+    act(() => result.current.selectMode("driving"));
+    expect(receipts(fetchMock)).toHaveLength(3);
+    expect(new Set(receipts(fetchMock).map(row => row.event_id)).size).toBe(3);
+    expect(fetchMock.mock.calls.filter(call => call[0] === "/api/score")).toHaveLength(1);
+    expect(JSON.stringify(receipts(fetchMock))).not.toMatch(/Original|Resolved|branch|schlep|fire|origin/);
+    for (const call of fetchMock.mock.calls.filter(call => call[0] === "/api/measurement")) {
+      expect(call[1].keepalive).toBe(true);
+      expect(new TextEncoder().encode(call[1].body).length).toBeLessThanOrEqual(1024);
+    }
+  });
+  it.each(["older-first", "latest-first"])("reports only latest committed attempt for %s", async order => {
+    const older = deferred<Response>(); const latest = deferred<Response>();
+    const fetchMock = vi.fn().mockImplementation((url: string, options: RequestInit) => {
+      if (url === "/api/measurement") return Promise.resolve(new Response(null, { status: 204 }));
+      return JSON.parse(options.body as string).place === "Old" ? older.promise : latest.promise;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useScore());
+    let oldSearch!: Promise<void>; let latestSearch!: Promise<void>;
+    act(() => { oldSearch = result.current.search({ place: "Old", from: "Original origin" }); latestSearch = result.current.search({ place: "Latest", from: "Original origin" }); });
+    const oldResponse = correlated(fixture(), "cccccccc-cccc-4ccc-accc-cccccccccccc");
+    if (order === "older-first") {
+      await act(async () => { older.resolve(oldResponse); await oldSearch; });
+      expect(receipts(fetchMock)).toHaveLength(0);
+      await act(async () => { latest.resolve(correlated(fixture())); await latestSearch; });
+    } else {
+      await act(async () => { latest.resolve(correlated(fixture())); await latestSearch; });
+      await act(async () => { older.resolve(oldResponse); await oldSearch; });
+    }
+    expect(receipts(fetchMock)).toEqual([expect.objectContaining({ event: "decision_displayed", attempt_id: attempt })]);
+  });
+  it("suppresses invalid/unmatched correlation and malformed result receipts", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(correlated({ ...fixture(), fire: 0 })).mockResolvedValueOnce(correlated(fixture(), "private header"));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useScore());
+    await act(async () => { await result.current.search({ place: "Original", from: "Original origin" }); });
+    await act(async () => { await result.current.search({ place: "Original", from: "Original origin" }); });
+    expect(result.current.result).toBeTruthy();
+    expect(receipts(fetchMock)).toHaveLength(0);
+  });
+  it.each(["UUID", "sync receipt", "async receipt"])("preserves scoring under %s telemetry failure", async failure => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/measurement") {
+        if (failure === "sync receipt") throw new Error("receipt unavailable");
+        return Promise.reject(new Error("receipt unavailable"));
+      }
+      return Promise.resolve(correlated(fixture()));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    if (failure === "UUID") vi.spyOn(crypto, "randomUUID").mockImplementation(() => { throw new Error("UUID unavailable"); });
+    const { result } = renderHook(() => useScore());
+    await act(async () => { await result.current.search({ place: "Original", from: "Original origin" }); });
+    expect(result.current.result?.fire).toBe(8); expect(result.current.error).toBeNull();
+    expect(fetchMock.mock.calls.filter(call => call[0] === "/api/score")).toHaveLength(1);
   });
 });
