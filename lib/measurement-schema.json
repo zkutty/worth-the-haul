@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "common": ["v", "event", "at", "operation_id", "attempt_id", "revision"],
+  "events": {
+    "score_start": ["traffic"],
+    "score_outcome": ["status", "outcome", "code", "elapsed_ms"],
+    "provider_start": ["provider", "call_id"],
+    "provider_finish": ["provider", "call_id", "elapsed_ms", "result"],
+    "decision_displayed": ["event_id"],
+    "mode_changed": ["event_id", "mode"]
+  },
+  "providers": ["places", "routes", "model"],
+  "traffic": ["controlled_smoke", "unclassified"],
+  "outcomes": ["success", "invalid", "denied", "not_found", "provider_failure", "unusable_result", "failure"],
+  "providerResults": ["resolved", "rejected"],
+  "modes": ["driving", "transit", "walking", "bicycling"],
+  "codes": ["SUCCESS", "INVALID_REQUEST", "PLACE_NOT_FOUND", "COST_PROTECTION_UNAVAILABLE", "SCORING_PAUSED", "INVALID_BUDGET_REQUEST", "DAILY_SCORE_LIMIT", "CLIENT_RATE_LIMIT", "SCORING_UNAVAILABLE", "PLACES_CONFIGURATION", "PLACES_QUOTA", "PLACES_NETWORK", "PLACES_RESPONSE", "ROUTES_CONFIGURATION", "ROUTES_QUOTA", "ROUTES_NETWORK", "ROUTES_RESPONSE", "SCORING_CONFIGURATION", "SCORING_QUOTA", "SCORING_NETWORK", "SCORING_RESPONSE", "UNKNOWN_FAILURE"]
+}

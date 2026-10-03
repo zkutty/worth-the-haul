@@ -1,6 +1,6 @@
 # Dependable scoring: verification and recovery
 
-This runbook supports ZK-1263 through ZK-1268. A passing configuration
+This runbook supports ZK-1263 through ZK-1269. A passing configuration
 readiness response does not certify Google or Anthropic availability. Release
 certification requires successful scoring against the deployed revision.
 
@@ -82,6 +82,17 @@ fresh lookup. See [trip context](trip-context.md) and
 An unusable model result gets one retry. Anthropic SDK retries are disabled;
 each invocation has a 20-second timeout and a 600-token output cap.
 
+Measurement adds ephemeral operation/attempt response headers, without changing
+the score JSON contract. The client reports only the latest committed validated
+decision and committed mode transitions to a bounded `/api/measurement` endpoint.
+These reports are best-effort, unauthenticated and separate from server-success
+counts. Provider events count every actual invocation, including failed/retried
+calls and work whose response the client no longer displays. See
+[measurement definitions](measurement-contract.md) and the reproducible
+[baseline extraction](measurement-baseline.md). Automatic Worker invocation URL
+logs are disabled; application custom events are allowlisted. Edge, upstream
+provider and historical logs remain outside that application-event boundary.
+
 ## Cost protection
 
 Every valid request reserves quota from the single `score-budget-v1` Durable
@@ -145,6 +156,14 @@ version, owner-selected nonzero daily cap, and provider diagnosis. Then run:
 ```bash
 node scripts/smoke-score.mjs https://DEVELOPMENT_WORKER_URL FULL_GIT_SHA
 ```
+
+The default checks all three built-ins. A measurement-only change that preserves
+the already-certified scoring behavior can select one public example with
+`--case example-sf`; record this narrower scope explicitly and keep the full
+deterministic provider-boundary tests. This option preserves the persistent daily
+allowance rather than resetting counters or raising the cap. Every smoke sends
+an observed `controlled_smoke` tag and verifies valid correlation response
+headers; the tag does not authenticate traffic provenance.
 
 When only the existing production Worker has provider secrets, a native remote
 development session can inherit those bindings without reading their values.

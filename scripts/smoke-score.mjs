@@ -1,15 +1,22 @@
 // Uses only the public built-in examples. Never print keys, request bodies,
 // customer locations, model text, or upstream error bodies.
-const [baseUrl, expectedRevision] = process.argv.slice(2);
+import { randomUUID } from "node:crypto";
+
+const [baseUrl, expectedRevision, option, caseId, ...extra] = process.argv.slice(2);
 if (!baseUrl || !expectedRevision) {
-  throw new Error("Usage: node scripts/smoke-score.mjs <base-url> <expected-revision>");
+  throw new Error("Usage: node scripts/smoke-score.mjs <base-url> <expected-revision> [--case <built-in-id>]");
 }
 const base = new URL(baseUrl);
-const cases = [
+const builtIns = [
   { id: "example-seattle", place: "Din Tai Fung, Seattle", from: "Capitol Hill, Seattle" },
   { id: "example-sf", place: "Benu, SF", from: "Mission District, SF" },
   { id: "example-nyc", place: "Joe's Pizza, NYC", from: "Midtown Manhattan" },
 ];
+if (extra.length || (option !== undefined && (option !== "--case" || !builtIns.some(entry => entry.id === caseId)))) {
+  throw new Error("Invalid smoke selection; use --case with a known built-in ID");
+}
+const cases = option ? builtIns.filter(entry => entry.id === caseId) : builtIns;
+const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const verdicts = ["Legendary Haul", "Worth It", "Barely Worth It", "Hard Pass"];
 const modes = ["driving", "transit", "walking", "bicycling"];
 const coherentVerdict = (fire, schlep) => fire / schlep >= 2 ? "Legendary Haul"
@@ -23,12 +30,16 @@ console.log(JSON.stringify({ checkedAt: new Date().toISOString(), origin: base.o
 
 for (const fixture of cases) {
   const started = Date.now();
+  const operationId = randomUUID();
   const response = await fetch(new URL("/api/score", base), {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json",
+      "X-WTH-Operation-Id": operationId, "X-WTH-Traffic": "controlled_smoke" },
     body: JSON.stringify({ place: fixture.place, from: fixture.from }),
     signal: AbortSignal.timeout(65_000),
   });
   const result = await response.json();
+  const correlation = response.headers.get("X-WTH-Operation-Id") === operationId &&
+    uuidV4.test(response.headers.get("X-WTH-Attempt-Id") ?? "");
   const selectedEstimate = result.mode_estimates?.find(entry => entry.mode === result.selected_mode);
   const sourceContext = result.resolvedPlace?.name === result.place_name && result.from === fixture.from &&
     result.evidence?.provider === "google_maps" && result.evidence?.assessment === "ai_estimate";
@@ -42,13 +53,13 @@ for (const fixture of cases) {
   const pairCoherent = result.verdict === coherentVerdict(result.fire, result.schlep) &&
     (result.legs?.length ? selectedEstimate?.schlep === result.schlep && selectedEstimate?.reason === result.schlep_reason
       : result.selected_mode === undefined && result.distance_note === "Travel time unknown");
-  const usable = response.ok && sourceContext && modeCoverage && pairCoherent && [result.fire, result.schlep].every(value =>
+  const usable = response.ok && correlation && sourceContext && modeCoverage && pairCoherent && [result.fire, result.schlep].every(value =>
     typeof value === "number" && Number.isFinite(value) && value >= 1 && value <= 10) &&
     verdicts.includes(result.verdict) &&
     [result.place_name, result.fire_reason, result.schlep_reason, result.verdict_reason].every(value =>
       typeof value === "string" && value.trim().length > 0) &&
     [result.fire_details, result.schlep_details, result.legs].every(Array.isArray);
-  console.log(JSON.stringify({ id: fixture.id, httpStatus: response.status, usable, sourceContext, modeCoverage, pairCoherent,
+  console.log(JSON.stringify({ id: fixture.id, httpStatus: response.status, usable, correlation, sourceContext, modeCoverage, pairCoherent,
     availableModes: Array.isArray(result.legs) ? result.legs.map(leg => leg.mode) : [], latencyMs: Date.now() - started,
     code: typeof result.code === "string" ? result.code : undefined }));
   if (!usable) throw new Error(`${fixture.id} did not complete a usable score`);

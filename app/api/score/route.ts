@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { findPlace, getDistance } from "@/lib/google";
-import { scoreWithClaude } from "@/lib/claude";
+import { ModelOutputError, scoreWithClaude } from "@/lib/claude";
 import { parseModelScore, parseScoreRequest, parseScoreResult } from "@/lib/score-contract";
 import { decisionFor, estimateText, selectResultMode } from "@/lib/decision";
 import { ProviderError, requireProviderKeys } from "@/lib/provider-error";
 import { checkScoreAccess } from "@/lib/score-access";
+import { scoreMeasurement } from "@/lib/measurement";
 import type { ScoreRequest, ScoreResult } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -54,16 +55,17 @@ function providerFailure(error: unknown) {
 }
 
 export async function POST(req: Request) {
+  const measurement = scoreMeasurement(req);
   let body: ScoreRequest;
   try {
     body = parseScoreRequest(await readBody(req));
   } catch (error) {
-    return NextResponse.json({
+    return measurement.finish(NextResponse.json({
       error: error instanceof RangeError ? error.message
         : error instanceof SyntaxError || error instanceof TypeError ? "Invalid JSON body"
         : error instanceof Error ? error.message : "Invalid request",
       code: "INVALID_REQUEST",
-    }, { status: error instanceof RangeError ? 413 : 400 });
+    }, { status: error instanceof RangeError ? 413 : 400 }), "invalid", "INVALID_REQUEST");
   }
 
   const { place, from, mode } = body;
@@ -73,19 +75,25 @@ export async function POST(req: Request) {
   try {
     requireProviderKeys();
     const denied = await checkScoreAccess(req);
-    if (denied) return denied;
-    placeData = await findPlace(place);
+    if (denied) {
+      let code: unknown;
+      try { code = (await denied.clone().json()).code; } catch { /* fixed fallback */ }
+      return measurement.finish(denied, "denied", code);
+    }
+    placeData = await findPlace(place, measurement.wrap);
     if (!placeData) {
-      return NextResponse.json(
+      return measurement.finish(NextResponse.json(
         { error: "Place not found. Try being more specific.", code: "PLACE_NOT_FOUND" },
         { status: 400 }
-      );
+      ), "not_found", "PLACE_NOT_FOUND");
     }
 
-    distance = from ? await getDistance(from, placeData) : null;
-    scored = await scoreWithClaude(placeData, from, distance, place, mode);
+    distance = from ? await getDistance(from, placeData, measurement.wrap) : null;
+    scored = await scoreWithClaude(placeData, from, distance, place, mode, measurement.wrap);
   } catch (err) {
-    return providerFailure(err);
+    const response = providerFailure(err);
+    const code = err instanceof ProviderError ? `${err.provider.toUpperCase()}_${err.kind.toUpperCase()}` : "SCORING_UNAVAILABLE";
+    return measurement.finish(response, err instanceof ModelOutputError ? "unusable_result" : err instanceof ProviderError ? "provider_failure" : "failure", code);
   }
 
   try {
@@ -114,8 +122,8 @@ export async function POST(req: Request) {
       result = selectResultMode(result, selected);
     }
     // Validate our complete response too; malformed context never reaches UI.
-    return NextResponse.json(parseScoreResult(JSON.parse(JSON.stringify(result))));
+    return measurement.finish(NextResponse.json(parseScoreResult(JSON.parse(JSON.stringify(result)))), "success", "SUCCESS");
   } catch (error) {
-    return providerFailure(error);
+    return measurement.finish(providerFailure(error), "unusable_result", "SCORING_UNAVAILABLE");
   }
 }
