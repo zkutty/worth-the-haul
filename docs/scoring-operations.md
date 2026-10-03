@@ -60,7 +60,7 @@ There is no refund or in-memory fallback that can exceed the ceiling.
 
 | Configuration | Behavior |
 | --- | --- |
-| `SCORE_DAILY_LIMIT` | Required nonnegative integer; global reservation cap per UTC day. Repository default `0` stops scoring until an owner chooses the budget. |
+| `SCORE_DAILY_LIMIT` | Required nonnegative integer; global reservation cap per UTC day. The owner approved `10` requests per environment on 2026-10-03; `0` stops scoring. |
 | `SCORE_CLIENT_LIMIT` | Positive integer, default `20`, following the historical ZK-7 proposal. Shared networks share this allowance. |
 | `SCORE_CLIENT_WINDOW_SECONDS` | Positive integer, default `60`, maximum `86400`; client allowance resets after its window. |
 | `SCORE_ENABLED` | `false` pauses all new scoring; default `true`. |

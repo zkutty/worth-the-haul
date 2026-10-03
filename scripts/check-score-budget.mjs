@@ -77,18 +77,18 @@ try {
   runtimes.delete(client);
 
   providerCalls = 0;
-  const dailyBindings = { SCORE_DAILY_LIMIT: "25", SCORE_CLIENT_LIMIT: "100", SCORE_CLIENT_WINDOW_SECONDS: "60" };
+  const dailyBindings = { SCORE_DAILY_LIMIT: "10", SCORE_CLIENT_LIMIT: "100", SCORE_CLIENT_WINDOW_SECONDS: "60" };
   const daily = runtime("daily", dailyBindings);
-  await checkWave(await wave(daily, 48, true), 25, "DAILY_SCORE_LIMIT");
-  assert.equal(providerCalls, 25 * 7);
+  await checkWave(await wave(daily, 48, true), 10, "DAILY_SCORE_LIMIT");
+  assert.equal(providerCalls, 10 * 7);
   await daily.dispose();
   runtimes.delete(daily);
   const persistedFiles = await readdir(path.join(directory, "daily"), { recursive: true });
   assert.ok(persistedFiles.some((file) => String(file).endsWith(".sqlite")), "SQLite persistence was not created");
   const restarted = runtime("daily", dailyBindings);
   await checkWave(await wave(restarted, 42, true), 0, "DAILY_SCORE_LIMIT");
-  assert.equal(providerCalls, 25 * 7);
-  console.log(JSON.stringify({ check: "global-concurrency-and-persistent-cap", firstWaveRequests: 48, allowed: 25, deniedAfterRestart: 42, stubCalls: 175, sqlitePersistence: true, passed: true }));
+  assert.equal(providerCalls, 10 * 7);
+  console.log(JSON.stringify({ check: "global-concurrency-and-persistent-cap", firstWaveRequests: 48, allowed: 10, deniedAfterRestart: 42, stubCalls: 70, sqlitePersistence: true, passed: true }));
 
   providerCalls = 0;
   providerFailure = true;

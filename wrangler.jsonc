@@ -18,7 +18,7 @@
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "vars": {
     "SCORE_ENABLED": "true",
-    "SCORE_DAILY_LIMIT": "0",
+    "SCORE_DAILY_LIMIT": "10",
     "SCORE_CLIENT_LIMIT": "20",
     "SCORE_CLIENT_WINDOW_SECONDS": "60"
   },
@@ -34,7 +34,7 @@
       "version_metadata": { "binding": "CF_VERSION_METADATA" },
       "vars": {
         "SCORE_ENABLED": "true",
-        "SCORE_DAILY_LIMIT": "0",
+        "SCORE_DAILY_LIMIT": "10",
         "SCORE_CLIENT_LIMIT": "20",
         "SCORE_CLIENT_WINDOW_SECONDS": "60"
       },
