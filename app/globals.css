@@ -5,7 +5,7 @@
   --surface: #0D0D0D;
   --border: #1C1C1C;
   --text: #EFEFEF;
-  --muted: #555555;
+  --muted: #7D7D7D;
   --fire: #FF4500;
   --schlep: #4A7FA5;
   --radius: 12px;
@@ -59,4 +59,18 @@ button {
 
 input::placeholder {
   color: var(--muted);
+}
+
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--fire);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+  }
 }

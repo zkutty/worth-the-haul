@@ -1,12 +1,12 @@
 # Dependable scoring: verification and recovery
 
-This runbook supports ZK-1263, ZK-1264, and ZK-1265. A passing configuration
+This runbook supports ZK-1263 through ZK-1268. A passing configuration
 readiness response does not certify Google or Anthropic availability. Release
 certification requires successful scoring against the deployed revision.
 
-## Historical provenance and current diagnosis
+## Historical provenance and resolved diagnosis
 
-The inspected repository main is commit
+The initial inspected repository main was commit
 `02f141da6585ffd69e0e372152bf55ca7c3ca4da`; the active production Worker's Git
 SHA cannot be recovered from its metadata. On 2026-10-03, the public built-in
 Benu example again returned HTTP 400 and `Place not found. Try being more
@@ -20,12 +20,12 @@ PR #7 added CI and output retry, and PR #8 corrected the lockfile. Preserve
 historical issue states; this milestone verifies and remedies current behavior.
 Do not merge PR #6's additional PWA, sharing, or rescore features into this scope.
 
-Cloudflare inspection on 2026-10-03 found production serving 100% version
+Initial Cloudflare inspection on 2026-10-03 found production serving 100% version
 `c7394967-e4d0-4a0a-b93f-0580e89d200f`, uploaded 2026-05-10. Its metadata has no
 Git revision; its bindings contain `ASSETS`, `GOOGLE_MAPS_API_KEY`, and
 `ANTHROPIC_API_KEY`, with no shared scoring quota binding. Both custom domains
 map to this Worker. Zone rate-limit reads returned 403 with the existing OAuth
-scope, so external edge rules remain unknown rather than proven absent.
+scope, so that API read could not establish whether edge rules existed.
 
 The development Worker version `1896c17a-b247-40db-a568-e08f5c1bc520` registered
 the isolated quota object with the owner-approved daily cap of 10. Independent
@@ -35,9 +35,15 @@ production secret bindings and delegated quota to that development object.
 Readiness passed, then Benu returned 503 `PLACES_CONFIGURATION`; the fixed
 provider log classified the denial as `billing_not_enabled`. Two of the ten
 development reservations were consumed by diagnosis. Production traffic was
-unchanged. Google billing activation requires an owner action before the three
-examples can certify development and production. Do not infer a legacy API
-migration from this billing denial.
+unchanged. The owner subsequently enabled Google billing; all three examples
+then passed in development and production. PR #9 released main revision
+`01260d29622b37f4c264087771c33a2731ee4838`, production version
+`0cedfee6-6b19-4df8-be08-3e2482668d2e`, with the persistent quota binding and
+10/day cap. Authenticated, unfiltered zone UI inspection later that day showed
+no custom, rate-limiting, or managed rules. The application quota closes the
+observed cost-control gap. These are historical release records; current
+availability still requires the deployed smoke gate. No legacy API migration
+was needed to correct this billing denial.
 
 Record fixed provider classifications, not keys, complete upstream responses,
 customer locations, prompts, or model output. Denial details map to fixed
@@ -45,16 +51,16 @@ configuration codes; unmatched provider text remains `REQUEST_DENIED`.
 
 ## Input and output contracts
 
-The body must be a JSON object with only `place`, optional `from`, `mode`, and
-`lockFire`. `place` accepts 1–200 characters after requiring a nonempty trimmed
+The body must be a JSON object with only `place`, optional `from`, and `mode`.
+`place` accepts 1–200 characters after requiring a nonempty trimmed
 value; `from` accepts up to 150 characters and an empty value means no origin.
 Length checks apply before trimming. These limits follow the existing ZK-9
 input proposal and comfortably cover the built-in destinations and origins.
 
 Allowed modes are driving, transit, walking, and bicycling. Optional fields
-must have the correct type when present. `lockFire` accepts only a finite score
-from 1 through 10, a nonempty reason up to 500 characters, and up to six nonempty
-detail strings of 500 characters each. A streamed body above 32 KiB returns 413,
+must have the correct type when present. Legacy `lockFire`, `knownPlace`,
+`knownLegs`, and arbitrary `context` are rejected rather than trusted. A streamed
+body above 32 KiB returns 413,
 even without `Content-Length`; malformed shapes and field limits return 400.
 Invalid requests neither reserve quota nor contact providers.
 
@@ -63,6 +69,16 @@ verdict, nonempty reasons up to 500 characters, and arrays of up to six nonempty
 500-character details. Empty detail arrays and an empty distance note are
 allowed. The note is limited to 300 characters. Invalid scores are never coerced
 or clamped into success; invalid verdicts never become a default positive verdict.
+Each initial assessment also supplies exactly one finite Schlep estimate per
+available route mode, with a reason up to 200 characters. The response includes
+the resolved Google candidate and committed origin, labels AI explanations as
+estimates, and derives the verdict from the final displayed score pair. A
+browser parser verifies this complete context before displaying it. Mode changes
+select a precomputed estimate in current-page memory, without Google or model
+calls; form edits do not alter the displayed trip. Every new submission performs
+fresh lookup. See [trip context](trip-context.md) and
+[destination evidence](destination-evidence.md) for identity and retention limits.
+
 An unusable model result gets one retry. Anthropic SDK retries are disabled;
 each invocation has a 20-second timeout and a 600-token output cap.
 

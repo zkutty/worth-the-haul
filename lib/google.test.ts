@@ -11,6 +11,59 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("Google provider failure classification", () => {
+  it("retains the first resolved branch with its address, ID, and supplied facts", async () => {
+    const chosen = {
+      name: "Same Name", formatted_address: "10 First St, City A", place_id: "branch-a",
+      rating: 4.2, user_ratings_total: 40, price_level: 2,
+      geometry: { location: { lat: 37, lng: -122 } },
+    };
+    fetchMock.mockResolvedValue(Response.json({ status: "OK", candidates: [chosen,
+      { name: "Same Name", formatted_address: "20 Second St, City B", place_id: "branch-b" },
+    ] }));
+    expect(await findPlace("Same Name")).toEqual({
+      name: chosen.name, formatted_address: chosen.formatted_address, place_id: chosen.place_id,
+      rating: 4.2, user_ratings_total: 40, price_level: 2, lat: 37, lng: -122,
+    });
+    const request = new URL(fetchMock.mock.calls[0][0]);
+    expect(request.searchParams.get("fields")?.split(",")).toContain("place_id");
+    expect(request.searchParams.get("fields")?.split(",")).not.toContain("user_ratings_total");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ cache: "no-store" });
+  });
+  it("leaves missing optional facts absent", async () => {
+    fetchMock.mockResolvedValue(Response.json({ status: "OK", candidates: [{ name: "Sparse", rating: 4.2 }] }));
+    expect(await findPlace("Sparse")).toEqual({ name: "Sparse", rating: 4.2 });
+  });
+  it.each([
+    { rating: "4.2", user_ratings_total: -1, price_level: 5, geometry: { location: { lat: 91, lng: -181 } } },
+    { rating: 0, user_ratings_total: 1.5, price_level: 2.5, geometry: { location: { lat: "37", lng: null } } },
+    { rating: Infinity, user_ratings_total: Number.MAX_SAFE_INTEGER + 1, price_level: "2", geometry: { location: { lat: NaN, lng: Infinity } } },
+    { rating: 5.1, user_ratings_total: "40", price_level: -1, formatted_address: 7, place_id: " " },
+  ])("omits malformed optional facts without losing the candidate %#", async (invalid) => {
+    // Custom json preserves non-finite numbers for boundary validation.
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "OK", candidates: [{ name: "Sparse", ...invalid }] }) });
+    expect(await findPlace("Sparse")).toEqual({ name: "Sparse" });
+  });
+  it("keeps actual supplied zero count/price and coordinate boundaries", async () => {
+    fetchMock.mockResolvedValue(Response.json({ status: "OK", candidates: [{ name: "Boundary", rating: 1, user_ratings_total: 0, price_level: 0, geometry: { location: { lat: -90, lng: 180 } } }] }));
+    expect(await findPlace("Boundary")).toMatchObject({ rating: 1, user_ratings_total: 0, price_level: 0, lat: -90, lng: 180 });
+  });
+  it("routes to the resolved ID before coordinates instead of another named branch", async () => {
+    fetchMock.mockImplementation(async () => Response.json({ status: "OK", rows: [{ elements: [{ status: "OK", duration: { text: "10 mins", value: 600 }, distance: { text: "1 km" } }] }] }));
+    expect((await getDistance("Origin", { name: "Same Name", place_id: "branch-a", lat: 37, lng: -122 }))?.legs).toHaveLength(4);
+    for (const [url] of fetchMock.mock.calls) {
+      expect(new URL(url).searchParams.get("destinations")).toBe("place_id:branch-a");
+    }
+  });
+  it("uses validated coordinates only when no ID is supplied", async () => {
+    fetchMock.mockImplementation(async () => Response.json({ status: "ZERO_RESULTS" }));
+    await getDistance("Origin", { name: "Same Name", lat: 37, lng: -122 });
+    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get("destinations")).toBe("37,-122");
+  });
+  it("does not route an ambiguous name without an ID or valid coordinate pair", async () => {
+    expect(await getDistance("Origin", { name: "Same Name" })).toBeNull();
+    expect(await getDistance("Origin", { name: "Same Name", lat: 91, lng: -122 })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("accepts a supported place and preserves source fields", async () => {
     fetchMock.mockResolvedValue(Response.json({ status: "OK", candidates: [{ name: "Benu", rating: 4.6, geometry: { location: { lat: 37, lng: -122 } } }] }));
     expect(await findPlace("Benu, SF")).toMatchObject({ name: "Benu", rating: 4.6, lat: 37, lng: -122 });
@@ -54,8 +107,8 @@ describe("Google provider failure classification", () => {
   });
   it("distinguishes unavailable routes from operational route failures", async () => {
     fetchMock.mockImplementation(() => Promise.resolve(Response.json({ status: "OK", rows: [{ elements: [{ status: "ZERO_RESULTS" }] }] })));
-    expect(await getDistance("fixture origin", { name: "fixture destination" })).toBeNull();
+    expect(await getDistance("fixture origin", { name: "fixture destination", place_id: "fixture-id" })).toBeNull();
     fetchMock.mockImplementation(() => Promise.resolve(Response.json({ status: "REQUEST_DENIED" })));
-    await expect(getDistance("fixture origin", { name: "fixture destination" })).rejects.toMatchObject({ provider: "routes", kind: "configuration" });
+    await expect(getDistance("fixture origin", { name: "fixture destination", place_id: "fixture-id" })).rejects.toMatchObject({ provider: "routes", kind: "configuration" });
   });
 });

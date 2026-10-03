@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { findPlace, getDistance } from "@/lib/google";
 import { scoreWithClaude } from "@/lib/claude";
-import { parseScoreRequest } from "@/lib/score-contract";
+import { parseModelScore, parseScoreRequest, parseScoreResult } from "@/lib/score-contract";
+import { decisionFor, estimateText, selectResultMode } from "@/lib/decision";
 import { ProviderError, requireProviderKeys } from "@/lib/provider-error";
 import { checkScoreAccess } from "@/lib/score-access";
 import type { ScoreRequest, ScoreResult } from "@/lib/types";
@@ -87,26 +88,34 @@ export async function POST(req: Request) {
     return providerFailure(err);
   }
 
-  // A mode change only affects schlep, not fire. Re-running Claude would
-  // jitter the fire score and erode trust, so when the client sends the
-  // fire it's already showing, we pin it and keep only the fresh schlep.
-  if (mode && body.lockFire) {
-    Object.assign(scored, body.lockFire);
+  try {
+    const legs = distance?.legs ?? [];
+    const model = parseModelScore(scored, legs.map((leg) => leg.mode));
+    let result: ScoreResult = {
+      ...model,
+      fire_reason: estimateText(model.fire_reason),
+      fire_details: model.fire_details.map(estimateText),
+      schlep_reason: "AI estimate: travel effort unknown without an available route.",
+      schlep_details: ["AI estimate: limited; travel time unknown."],
+      distance_note: "Travel time unknown",
+      mode_estimates: model.mode_estimates.map((entry) => ({ ...entry, reason: estimateText(entry.reason) })),
+      ...decisionFor(model.fire, model.schlep),
+      place_name: placeData.name,
+      maps_query: encodeURIComponent(placeData.name),
+      legs,
+      lat: placeData.lat,
+      lng: placeData.lng,
+      resolvedPlace: { ...placeData },
+      evidence: { provider: "google_maps", assessment: "ai_estimate" },
+      from,
+    };
+    if (legs.length) {
+      const selected = legs.find((leg) => leg.mode === mode)?.mode ?? legs[0].mode;
+      result = selectResultMode(result, selected);
+    }
+    // Validate our complete response too; malformed context never reaches UI.
+    return NextResponse.json(parseScoreResult(JSON.parse(JSON.stringify(result))));
+  } catch (error) {
+    return providerFailure(error);
   }
-
-  if (from && !distance && !scored.distance_note) {
-    scored.distance_note = "travel time unavailable";
-  }
-
-  const result: ScoreResult = {
-    ...scored,
-    place_name: placeData.name,
-    maps_query: encodeURIComponent(placeData.name),
-    legs: distance?.legs ?? [],
-    selected_mode: mode,
-    lat: placeData.lat,
-    lng: placeData.lng,
-  };
-
-  return NextResponse.json(result);
 }
