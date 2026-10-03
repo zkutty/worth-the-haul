@@ -6,8 +6,9 @@ certification requires successful scoring against the deployed revision.
 
 ## Historical provenance and current diagnosis
 
-The inspected production source is main commit
-`02f141da6585ffd69e0e372152bf55ca7c3ca4da`. On 2026-10-03, the public built-in
+The inspected repository main is commit
+`02f141da6585ffd69e0e372152bf55ca7c3ca4da`; the active production Worker's Git
+SHA cannot be recovered from its metadata. On 2026-10-03, the public built-in
 Benu example again returned HTTP 400 and `Place not found. Try being more
 specific.` Main collapses all unsuccessful Google lookups to this result; that
 message cannot identify the actual provider cause.
@@ -19,12 +20,28 @@ PR #7 added CI and output retry, and PR #8 corrected the lockfile. Preserve
 historical issue states; this milestone verifies and remedies current behavior.
 Do not merge PR #6's additional PWA, sharing, or rescore features into this scope.
 
-Before production release, record the active Worker version/deployed source
-revision, existing Worker bindings and secret **names**, and applicable zone
-rate rules. Record fixed provider classifications, not keys, complete upstream
-responses, customer locations, prompts, or model output. The current production
-provider cause and external rule configuration remain unverified until this
-inspection is completed. Do not infer a legacy API migration from a generic 400.
+Cloudflare inspection on 2026-10-03 found production serving 100% version
+`c7394967-e4d0-4a0a-b93f-0580e89d200f`, uploaded 2026-05-10. Its metadata has no
+Git revision; its bindings contain `ASSETS`, `GOOGLE_MAPS_API_KEY`, and
+`ANTHROPIC_API_KEY`, with no shared scoring quota binding. Both custom domains
+map to this Worker. Zone rate-limit reads returned 403 with the existing OAuth
+scope, so external edge rules remain unknown rather than proven absent.
+
+The development Worker version `1896c17a-b247-40db-a568-e08f5c1bc520` registered
+the isolated quota object with the owner-approved daily cap of 10. Independent
+development secrets are unavailable. A native `wrangler dev --remote` session
+of revision `5570ceed05bd324b28b2fe2444cbaba2dd094a3c` inherited the existing
+production secret bindings and delegated quota to that development object.
+Readiness passed, then Benu returned 503 `PLACES_CONFIGURATION`; the fixed
+provider log classified the denial as `billing_not_enabled`. Two of the ten
+development reservations were consumed by diagnosis. Production traffic was
+unchanged. Google billing activation requires an owner action before the three
+examples can certify development and production. Do not infer a legacy API
+migration from this billing denial.
+
+Record fixed provider classifications, not keys, complete upstream responses,
+customer locations, prompts, or model output. Denial details map to fixed
+configuration codes; unmatched provider text remains `REQUEST_DENIED`.
 
 ## Input and output contracts
 
@@ -112,6 +129,14 @@ version, owner-selected nonzero daily cap, and provider diagnosis. Then run:
 ```bash
 node scripts/smoke-score.mjs https://DEVELOPMENT_WORKER_URL FULL_GIT_SHA
 ```
+
+When only the existing production Worker has provider secrets, a native remote
+development session can inherit those bindings without reading their values.
+Use the unchanged built app handler with a foreign `SCORE_BUDGET` binding to
+`worth-the-haul-development`; omit a local quota class export from that temporary
+development entry. Keep the same persistent development object and daily cap
+across sessions. Do not enable historical public version URLs as a shortcut:
+the inspected Worker has both workers.dev and version routing disabled.
 
 The checker refuses to call providers until `/api/health` is ready and matches
 the expected revision. It scores all three public built-in examples and records
